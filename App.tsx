@@ -272,7 +272,7 @@ const App: React.FC = () => {
                 <label className="block text-xs font-medium text-slate-500 mb-1">战区</label>
                 <div className="relative">
                   <select 
-                    value={['1','2','3','4','5'].includes(newWarZone) ? newWarZone : 'custom'} 
+                    value={['1','2','3','4','5','6'].includes(newWarZone) ? newWarZone : 'custom'} 
                     onChange={(e) => setNewWarZone(e.target.value)}
                     className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none"
                   >
