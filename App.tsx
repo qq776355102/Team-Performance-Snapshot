@@ -443,6 +443,23 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
+            
+            {(searchTerm || filterWarZone !== 'all' || filterLevel !== 'all') && (
+              <div className="flex items-center justify-between pt-2 border-t border-slate-50">
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center">
+                  <span className="w-1 h-1 bg-indigo-400 rounded-full mr-2"></span>
+                  查询结果：共 <span className="text-indigo-600 mx-1">{totalCount}</span> 条匹配
+                </div>
+                {searchTerm && (
+                   <button 
+                    onClick={() => { setSearchTerm(''); setFilterWarZone('all'); setFilterLevel('all'); }}
+                    className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 underline"
+                   >
+                     清空所有筛选
+                   </button>
+                )}
+              </div>
+            )}
           </div>
 
           <AddressTable 
