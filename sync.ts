@@ -11,32 +11,60 @@ const PRECISION = 9;
 // --- 基础 API 函数 (移植自 apiService.ts) ---
 
 const formatStaking = (raw: string | number): number => {
-  const val = typeof raw === 'string' ? BigInt(raw) : BigInt(Math.floor(Number(raw)));
-  return Number(val) / Math.pow(10, PRECISION);
+  try {
+    const val = typeof raw === 'string' ? BigInt(raw) : BigInt(Math.floor(Number(raw)));
+    return Number(val) / Math.pow(10, PRECISION);
+  } catch (e) {
+    return 0;
+  }
 };
 
 const fetchLevel = async (address: string) => {
-  const res = await fetch(`https://apiv2.ocros.io/api/v1/community/${address}`, {
-    method: "POST",
-    headers: { "accept": "*/*", "Referer": "https://origindefi.io/" }
-  });
-  const data: any = await res.json();
-  return data.level || 'Unknown';
+  try {
+    const res = await fetch(`https://apiv2.ocros.io/api/v1/community/${address}`, {
+      method: "POST",
+      headers: { "accept": "*/*", "Referer": "https://origindefi.io/" }
+    });
+    if (!res.ok) return 'Unknown';
+    const text = await res.text();
+    if (!text) return 'Unknown';
+    const data = JSON.parse(text);
+    return data.level || 'Unknown';
+  } catch (e) {
+    console.error(`[fetchLevel] Error for ${address}:`, e);
+    return 'Unknown';
+  }
 };
 
 const fetchInviteData = async (address: string) => {
-  const res = await fetch(`https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`, {
-    headers: { "accept": "application/json", "Referer": "https://origindefi.io/" }
-  });
-  return res.json();
+  try {
+    const res = await fetch(`https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`, {
+      headers: { "accept": "application/json", "Referer": "https://origindefi.io/" }
+    });
+    if (!res.ok) return { directReferralQuantity: 0, teamNumber: '0' };
+    const text = await res.text();
+    if (!text) return { directReferralQuantity: 0, teamNumber: '0' };
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(`[fetchInviteData] Error for ${address}:`, e);
+    return { directReferralQuantity: 0, teamNumber: '0' };
+  }
 };
 
 const fetchStakingStatus = async (address: string) => {
-  const res = await fetch(`https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "Referer": "https://origindefi.io/" }
-  });
-  return res.json();
+  try {
+    const res = await fetch(`https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "Referer": "https://origindefi.io/" }
+    });
+    if (!res.ok) return { teamStaking: '0', role: 'Unknown' };
+    const text = await res.text();
+    if (!text) return { teamStaking: '0', role: 'Unknown' };
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(`[fetchStakingStatus] Error for ${address}:`, e);
+    return { teamStaking: '0', role: 'Unknown' };
+  }
 };
 
 const fetchReferrer = async (address: string): Promise<string | null> => {
@@ -174,6 +202,5 @@ async function runSync() {
 
 runSync().catch(err => {
   console.error('❌ 同步过程中出现致命错误:', err);
-  // FIX: Cast 'process' to 'any' to call 'exit' as it might be missing from the 'Process' type in certain TS environments.
   (process as any).exit(1);
 });

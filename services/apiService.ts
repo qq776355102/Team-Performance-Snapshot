@@ -4,8 +4,12 @@ import { InviteData, StakingData } from '../types';
 const PRECISION = 9;
 
 export const formatStaking = (raw: string | number): number => {
-  const val = typeof raw === 'string' ? BigInt(raw) : BigInt(Math.floor(raw));
-  return Number(val) / Math.pow(10, PRECISION);
+  try {
+    const val = typeof raw === 'string' ? BigInt(raw) : BigInt(Math.floor(Number(raw)));
+    return Number(val) / Math.pow(10, PRECISION);
+  } catch (e) {
+    return 0;
+  }
 };
 
 // 获取地址等级 Level
@@ -18,7 +22,10 @@ export const fetchLevel = async (address: string): Promise<string> => {
         "Referer": "https://origindefi.io/",
       }
     });
-    const data = await res.json();
+    if (!res.ok) return 'Unknown';
+    const text = await res.text();
+    if (!text) return 'Unknown';
+    const data = JSON.parse(text);
     return data.level || 'Unknown';
   } catch (error) {
     console.error("Fetch level error:", error);
@@ -27,25 +34,39 @@ export const fetchLevel = async (address: string): Promise<string> => {
 };
 
 export const fetchInviteData = async (address: string): Promise<InviteData> => {
-  const url = `https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`;
-  const res = await fetch(url, {
-    headers: {
-      "accept": "application/json",
-      "Referer": "https://origindefi.io/",
-    }
-  });
-  return res.json();
+  try {
+    const url = `https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`;
+    const res = await fetch(url, {
+      headers: {
+        "accept": "application/json",
+        "Referer": "https://origindefi.io/",
+      }
+    });
+    if (!res.ok) return { directReferralQuantity: 0, teamNumber: '0' };
+    const text = await res.text();
+    if (!text) return { directReferralQuantity: 0, teamNumber: '0' };
+    return JSON.parse(text);
+  } catch (e) {
+    return { directReferralQuantity: 0, teamNumber: '0' };
+  }
 };
 
 export const fetchStakingStatus = async (address: string): Promise<StakingData> => {
-  const res = await fetch(`https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "Referer": "https://origindefi.io/",
-    }
-  });
-  return res.json();
+  try {
+    const res = await fetch(`https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Referer": "https://origindefi.io/",
+      }
+    });
+    if (!res.ok) return { teamStaking: '0', role: 'Unknown' };
+    const text = await res.text();
+    if (!text) return { teamStaking: '0', role: 'Unknown' };
+    return JSON.parse(text);
+  } catch (e) {
+    return { teamStaking: '0', role: 'Unknown' };
+  }
 };
 
 export const fetchReferrer = async (address: string): Promise<string | null> => {
