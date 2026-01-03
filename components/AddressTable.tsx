@@ -4,13 +4,19 @@ import { AddressMetrics } from '../types';
 
 interface Props {
   data: AddressMetrics[];
-  onRemove: (address: string) => void;
   onShowHistory: (metrics: AddressMetrics) => void;
   onShowPath: (address: string) => void;
   getAddressLabel: (addr: string) => string | null;
+  // 传入原始数据用于查找扣除项的具体金额
+  allRawData: AddressMetrics[];
 }
 
-const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPath, getAddressLabel }) => {
+const AddressTable: React.FC<Props> = ({ data, onShowHistory, onShowPath, getAddressLabel, allRawData }) => {
+  const getAmountByAddress = (addr: string) => {
+    const found = allRawData.find(d => d.address.toLowerCase() === addr.toLowerCase());
+    return found ? found.teamStaking : 0;
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="overflow-x-auto">
@@ -41,27 +47,35 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
                 </td>
                 <td className="px-6 py-4">
                   <div className="font-semibold text-slate-900">{item.label}</div>
-                  <div className="text-xs text-slate-500 font-mono mt-1">{item.address}</div>
+                  <div className="text-[10px] text-slate-400 font-mono mt-0.5">{item.address}</div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-slate-900">{item.directReferrals} / {item.teamNumber}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-slate-900">{item.teamStaking.toLocaleString()}</div>
+                  <div className="text-slate-900 font-medium">{item.teamStaking.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="font-bold text-blue-600">{item.effectiveStaking.toLocaleString()}</div>
+                  <div className="font-bold text-blue-600 text-base">
+                    {item.effectiveStaking.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </div>
                   {item.nearestLabeledChildren.length > 0 && (
-                    <div className="mt-1">
-                      <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">
-                        已扣除:
+                    <div className="mt-2 pt-1 border-t border-slate-100">
+                      <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">
+                        扣除详情:
                       </div>
-                      <div className="flex flex-col gap-0.5 mt-0.5">
-                        {item.nearestLabeledChildren.map(child => (
-                          <div key={child} className="text-[10px] text-orange-500 font-medium leading-none truncate max-w-[120px]" title={child}>
-                            • {getAddressLabel(child) || child}
-                          </div>
-                        ))}
+                      <div className="flex flex-col gap-1">
+                        {item.nearestLabeledChildren.map(child => {
+                          const childAmount = getAmountByAddress(child);
+                          return (
+                            <div key={child} className="flex justify-between items-center text-[10px] leading-none space-x-2">
+                              <span className="text-orange-600 font-medium truncate max-w-[80px]" title={child}>
+                                • {getAddressLabel(child) || '未知'}
+                              </span>
+                              <span className="text-slate-400 font-mono">-{childAmount.toLocaleString()}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -70,21 +84,15 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
                   <div className="flex justify-end gap-2">
                     <button 
                       onClick={() => onShowPath(item.address)}
-                      className="text-blue-500 hover:text-blue-700 font-medium text-xs py-1 px-2 border border-blue-200 rounded hover:bg-blue-50"
+                      className="text-blue-500 hover:text-blue-700 font-medium text-xs py-1 px-2 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
                     >
                       邀请路径
                     </button>
                     <button 
                       onClick={() => onShowHistory(item)}
-                      className="text-emerald-500 hover:text-emerald-700 font-medium text-xs py-1 px-2 border border-emerald-200 rounded hover:bg-emerald-50"
+                      className="text-emerald-500 hover:text-emerald-700 font-medium text-xs py-1 px-2 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
                     >
                       7天数据
-                    </button>
-                    <button 
-                      onClick={() => onRemove(item.address)}
-                      className="text-red-400 hover:text-red-600 font-medium text-xs p-1"
-                    >
-                      移除
                     </button>
                   </div>
                 </td>
@@ -92,7 +100,7 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
             ))}
             {data.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
                   暂无匹配地址或尚未同步今日数据
                 </td>
               </tr>
