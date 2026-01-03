@@ -276,10 +276,10 @@ const App: React.FC = () => {
                     onChange={(e) => setNewWarZone(e.target.value)}
                     className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none"
                   >
-                    {[1,2,3,4,5].map(v => <option key={v} value={v}>{v} 战区</option>)}
+                    {[1,2,3,4,5,6].map(v => <option key={v} value={v}>{v} 战区</option>)}
                     <option value="custom">自定义名称</option>
                   </select>
-                  {!['1','2','3','4','5'].includes(newWarZone) && (
+                  {!['1','2','3','4','5','6'].includes(newWarZone) && (
                     <input 
                       type="text" 
                       value={newWarZone}
