@@ -1,16 +1,31 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// 重要：必须使用完整的 process.env.变量名，以便打包工具在构建阶段进行静态替换
-// 如果重新部署后依然为 false，请尝试在 Vercel 中将变量名修改为 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY
-const supabaseUrl = (process.env as any).SUPABASE_URL || '';
-const supabaseAnonKey = (process.env as any).SUPABASE_ANON_KEY || '';
+/**
+ * 环境变量读取逻辑 (适配 Vite + Vercel)
+ * 1. 优先读取 import.meta.env (Vite 标准)
+ * 2. 备选读取 process.env (Webpack/CRA 标准)
+ */
+const getEnv = (name: string): string => {
+  const env = (import.meta as any).env;
+  const proc = (process as any).env;
+  
+  return env?.[`VITE_${name}`] || 
+         env?.[name] || 
+         proc?.[`VITE_${name}`] || 
+         proc?.[name] || 
+         '';
+};
 
-// 诊断日志：部署后可在控制台确认变量是否被成功注入
+const supabaseUrl = getEnv('SUPABASE_URL');
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
+
+// 诊断日志：帮助在 Vercel 部署后的控制台排查
 console.log('%c[Supabase 注入检查]', 'color: #6366f1; font-weight: bold', {
-  urlLoaded: !!supabaseUrl,
-  keyLoaded: !!supabaseAnonKey,
-  info: supabaseUrl ? '环境变量已成功读取' : '未检测到环境变量，请确保已 Redeploy 并检查变量名'
+  urlFound: !!supabaseUrl,
+  keyFound: !!supabaseAnonKey,
+  method: (import.meta as any).env ? 'Vite/ESM' : 'CommonJS/Process',
+  tip: !supabaseUrl ? '若为 false，请检查 Vercel 变量名是否已改为 VITE_ 开头并 Redeploy' : '注入成功'
 });
 
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
