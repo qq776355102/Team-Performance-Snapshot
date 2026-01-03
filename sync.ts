@@ -7,6 +7,37 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const PRECISION = 9;
+const BATCH_SIZE = 5; // 每次最多处理5个地址
+const RETRY_DELAY = 10000; // 失败重试等待10秒
+const MAX_RETRIES = 3; // 最大重试次数
+
+// --- 工具函数 ---
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 带有重试逻辑的 fetch 包装器
+ */
+async function fetchWithRetry(url: string, options: any, description: string): Promise<any> {
+  let lastError: any;
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const text = await res.text();
+      if (!text) return null;
+      return JSON.parse(text);
+    } catch (e: any) {
+      lastError = e;
+      console.warn(`⚠️ [${description}] 尝试第 ${i + 1} 次失败: ${e.message}。等待 ${RETRY_DELAY/1000}s 后重试...`);
+      if (i < MAX_RETRIES - 1) await delay(RETRY_DELAY);
+    }
+  }
+  console.error(`❌ [${description}] 在尝试 ${MAX_RETRIES} 次后全部失败。`);
+  return null;
+}
 
 // --- 基础 API 函数 (移植自 apiService.ts) ---
 
@@ -20,63 +51,48 @@ const formatStaking = (raw: string | number): number => {
 };
 
 const fetchLevel = async (address: string) => {
-  try {
-    const res = await fetch(`https://apiv2.ocros.io/api/v1/community/${address}`, {
+  const data = await fetchWithRetry(
+    `https://apiv2.ocros.io/api/v1/community/${address}`,
+    {
       method: "POST",
       headers: { "accept": "*/*", "Referer": "https://origindefi.io/" }
-    });
-    if (!res.ok) return 'Unknown';
-    const text = await res.text();
-    if (!text) return 'Unknown';
-    const data = JSON.parse(text);
-    return data.level || 'Unknown';
-  } catch (e) {
-    console.error(`[fetchLevel] Error for ${address}:`, e);
-    return 'Unknown';
-  }
+    },
+    `fetchLevel ${address}`
+  );
+  return data?.level || 'Unknown';
 };
 
 const fetchInviteData = async (address: string) => {
-  try {
-    const res = await fetch(`https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`, {
-      headers: { "accept": "application/json", "Referer": "https://origindefi.io/" }
-    });
-    if (!res.ok) return { directReferralQuantity: 0, teamNumber: '0' };
-    const text = await res.text();
-    if (!text) return { directReferralQuantity: 0, teamNumber: '0' };
-    return JSON.parse(text);
-  } catch (e) {
-    console.error(`[fetchInviteData] Error for ${address}:`, e);
-    return { directReferralQuantity: 0, teamNumber: '0' };
-  }
+  const data = await fetchWithRetry(
+    `https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`,
+    { headers: { "accept": "application/json", "Referer": "https://origindefi.io/" } },
+    `fetchInviteData ${address}`
+  );
+  return data || { directReferralQuantity: 0, teamNumber: '0' };
 };
 
 const fetchStakingStatus = async (address: string) => {
-  try {
-    const res = await fetch(`https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`, {
+  const data = await fetchWithRetry(
+    `https://api.ocros.io/v1/api/comm/queryStakingStatus?member=${address}`,
+    {
       method: "POST",
       headers: { "content-type": "application/json", "Referer": "https://origindefi.io/" }
-    });
-    if (!res.ok) return { teamStaking: '0', role: 'Unknown' };
-    const text = await res.text();
-    if (!text) return { teamStaking: '0', role: 'Unknown' };
-    return JSON.parse(text);
-  } catch (e) {
-    console.error(`[fetchStakingStatus] Error for ${address}:`, e);
-    return { teamStaking: '0', role: 'Unknown' };
-  }
+    },
+    `fetchStakingStatus ${address}`
+  );
+  return data || { teamStaking: '0', role: 'Unknown' };
 };
 
 const fetchReferrer = async (address: string): Promise<string | null> => {
   const addressParam = address.replace(/^0x/, '').toLowerCase().padStart(64, '0');
-  const data = "0x08ae4b0c" + addressParam;
+  const bodyData = "0x08ae4b0c" + addressParam;
   try {
     const res = await fetch("https://greatest-powerful-feather.matic.quiknode.pro/d05012eaa00b33a3aa3e8e7981b2d658f4281815/", {
       method: "POST",
       headers: { "content-type": "application/json", "Referer": "https://origindefi.io/" },
       body: JSON.stringify({
         "method": "eth_call",
-        "params": [{ "to": "0x6757165973042541ebdec47b73283397b5afd90e", "data": data }, "latest"],
+        "params": [{ "to": "0x6757165973042541ebdec47b73283397b5afd90e", "data": bodyData }, "latest"],
         "id": 44, "jsonrpc": "2.0"
       })
     });
@@ -114,34 +130,42 @@ async function runSync() {
   const { data: dbAddresses, error: dbError } = await supabase.from('tracked_addresses').select('*');
   if (dbError || !dbAddresses) throw new Error('读取地址列表失败');
   
-  console.log(`📊 共有 ${dbAddresses.length} 个地址待同步`);
+  console.log(`📊 共有 ${dbAddresses.length} 个地址待同步，将分批处理 (每批 ${BATCH_SIZE} 个)`);
 
   const today = new Date().toISOString().split('T')[0];
   const referralCache = new Map<string, string | null>();
+  const rawData: any[] = [];
 
-  // 2. 抓取原始数据
-  const rawData = await Promise.all(dbAddresses.map(async (item) => {
-    console.log(`⏳ 正在同步: ${item.label} (${item.address})`);
-    const [invite, stake, chain, level] = await Promise.all([
-      fetchInviteData(item.address),
-      fetchStakingStatus(item.address),
-      fetchFullChain(item.address, referralCache),
-      fetchLevel(item.address)
-    ]);
+  // 2. 分批抓取原始数据以避免并发过大导致 Socket 关闭
+  for (let i = 0; i < dbAddresses.length; i += BATCH_SIZE) {
+    const batch = dbAddresses.slice(i, i + BATCH_SIZE);
+    console.log(`📡 正在处理第 ${i + 1} 到 ${Math.min(i + BATCH_SIZE, dbAddresses.length)} 个地址...`);
 
-    return {
-      address: item.address.toLowerCase(),
-      label: item.label,
-      warZone: item.war_zone,
-      level,
-      directReferrals: invite.directReferralQuantity,
-      teamNumber: parseInt(invite.teamNumber || '0'),
-      teamStaking: formatStaking(stake.teamStaking),
-      referrerChain: chain
-    };
-  }));
+    const results = await Promise.all(batch.map(async (item) => {
+      const [invite, stake, chain, level] = await Promise.all([
+        fetchInviteData(item.address),
+        fetchStakingStatus(item.address),
+        fetchFullChain(item.address, referralCache),
+        fetchLevel(item.address)
+      ]);
+
+      return {
+        address: item.address.toLowerCase(),
+        label: item.label,
+        warZone: item.war_zone,
+        level,
+        directReferrals: invite.directReferralQuantity,
+        teamNumber: parseInt(invite.teamNumber || '0'),
+        teamStaking: formatStaking(stake.teamStaking),
+        referrerChain: chain
+      };
+    }));
+
+    rawData.push(...results);
+  }
 
   // 3. 计算有效业绩 (核心扣除逻辑)
+  console.log('🧮 正在计算业绩层级关系...');
   const finalMetrics = rawData.map(A => {
     const nearestChildren: string[] = [];
     const others = rawData.filter(X => X.address !== A.address);
