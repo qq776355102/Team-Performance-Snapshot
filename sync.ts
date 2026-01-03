@@ -7,8 +7,9 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const PRECISION = 9;
-const MAX_RETRIES = 5; // 最大重试次数改为 5
+const MAX_RETRIES = 5; // 最大重试次数
 const BASE_RETRY_DELAY = 10000; // 基础重试间隔 10 秒
+const BATCH_SIZE = 3; // 每批次处理 3 个地址
 
 // --- 工具函数 ---
 
@@ -16,7 +17,7 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * 带有递增重试逻辑的 fetch 包装器
- * 串行执行，报错后等待时间随重试次数增加
+ * 报错后等待时间随重试次数增加
  */
 async function fetchWithRetry(url: string, options: any, description: string): Promise<any> {
   let lastError: any;
@@ -31,7 +32,6 @@ async function fetchWithRetry(url: string, options: any, description: string): P
       return JSON.parse(text);
     } catch (e: any) {
       lastError = e;
-      // 间隔时间增大：第1次10s, 第2次20s, 第3次30s...
       const currentDelay = (i + 1) * BASE_RETRY_DELAY;
       console.warn(`⚠️ [${description}] 尝试第 ${i + 1} 次失败: ${e.message}。等待 ${currentDelay / 1000}s 后重试...`);
       if (i < MAX_RETRIES - 1) {
@@ -91,7 +91,6 @@ const fetchReferrer = async (address: string): Promise<string | null> => {
   const addressParam = address.replace(/^0x/, '').toLowerCase().padStart(64, '0');
   const bodyData = "0x08ae4b0c" + addressParam;
   
-  // 同样对 RPC 调用使用重试机制
   const resData = await fetchWithRetry(
     "https://greatest-powerful-feather.matic.quiknode.pro/d05012eaa00b33a3aa3e8e7981b2d658f4281815/",
     {
@@ -125,8 +124,7 @@ const fetchFullChain = async (address: string, cache: Map<string, string | null>
     if (!next) break;
     chain.push(next);
     current = next;
-    // 链条查询也加入微小间隔
-    await delay(500);
+    await delay(200); // 内部微延迟
   }
   return chain;
 };
@@ -140,45 +138,48 @@ async function runSync() {
   const { data: dbAddresses, error: dbError } = await supabase.from('tracked_addresses').select('*');
   if (dbError || !dbAddresses) throw new Error('读取地址列表失败');
   
-  console.log(`📊 共有 ${dbAddresses.length} 个地址待同步，将采用【纯串行】方式同步以规避频率限制。`);
+  console.log(`📊 共有 ${dbAddresses.length} 个地址待同步，将分批处理 (每批 ${BATCH_SIZE} 个) 以平衡效率与频率限制。`);
 
   const today = new Date().toISOString().split('T')[0];
   const referralCache = new Map<string, string | null>();
   const rawData: any[] = [];
 
-  // 2. 完全串行抓取数据
-  for (let i = 0; i < dbAddresses.length; i++) {
-    const item = dbAddresses[i];
-    console.log(`📡 [${i + 1}/${dbAddresses.length}] 正在同步: ${item.label} (${item.address})`);
+  // 2. 分批抓取数据
+  for (let i = 0; i < dbAddresses.length; i += BATCH_SIZE) {
+    const batch = dbAddresses.slice(i, i + BATCH_SIZE);
+    console.log(`📡 [批次处理] 正在同步第 ${i + 1} 到 ${Math.min(i + BATCH_SIZE, dbAddresses.length)} 个地址...`);
 
-    try {
-      // 串行获取单个地址的各项数据，不再使用 Promise.all
-      const invite = await fetchInviteData(item.address);
-      await delay(1000); // 间隔
-      
-      const stake = await fetchStakingStatus(item.address);
-      await delay(1000); // 间隔
-      
-      const chain = await fetchFullChain(item.address, referralCache);
-      await delay(1000); // 间隔
-      
-      const level = await fetchLevel(item.address);
+    const results = await Promise.all(batch.map(async (item) => {
+      try {
+        // 每个地址内部的数据抓取仍然保持一定的串行或极短延迟，防止瞬时并发极高
+        const invite = await fetchInviteData(item.address);
+        const stake = await fetchStakingStatus(item.address);
+        const chain = await fetchFullChain(item.address, referralCache);
+        const level = await fetchLevel(item.address);
 
-      rawData.push({
-        address: item.address.toLowerCase(),
-        label: item.label,
-        warZone: item.war_zone,
-        level,
-        directReferrals: invite.directReferralQuantity,
-        teamNumber: parseInt(invite.teamNumber || '0'),
-        teamStaking: formatStaking(stake.teamStaking),
-        referrerChain: chain
-      });
+        return {
+          address: item.address.toLowerCase(),
+          label: item.label,
+          warZone: item.war_zone,
+          level,
+          directReferrals: invite.directReferralQuantity,
+          teamNumber: parseInt(invite.teamNumber || '0'),
+          teamStaking: formatStaking(stake.teamStaking),
+          referrerChain: chain
+        };
+      } catch (err) {
+        console.error(`❌ 处理地址 ${item.address} 时出现错误:`, err);
+        return null;
+      }
+    }));
 
-      // 每个地址处理完后额外等待，确保请求平滑
-      await delay(2000);
-    } catch (err) {
-      console.error(`❌ 处理地址 ${item.address} 时出现错误，跳过该地址:`, err);
+    // 过滤掉失败的地址并加入结果集
+    rawData.push(...results.filter(r => r !== null));
+
+    // 批次之间增加延迟
+    if (i + BATCH_SIZE < dbAddresses.length) {
+      console.log(`⏳ 批次完成，等待 5s 进入下一批...`);
+      await delay(5000);
     }
   }
 
@@ -232,14 +233,13 @@ async function runSync() {
       metrics: item.metrics
     }, { onConflict: 'address,date' });
     if (error) console.error(`保存失败 ${item.address}:`, error.message);
-    await delay(200); // 写入间隔
+    await delay(100); 
   }
 
   // 5. 更新 tracked_addresses 中的等级
   console.log('🏷️ 更新地址等级信息...');
   for (const item of rawData) {
     await supabase.from('tracked_addresses').update({ level: item.level }).eq('address', item.address);
-    await delay(100); // 更新间隔
   }
 
   console.log('✅ 同步任务圆满完成！');
