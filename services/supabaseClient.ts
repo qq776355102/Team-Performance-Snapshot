@@ -2,12 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 
 // 从环境变量中读取 Supabase 配置
-// 在 Vercel 或其他部署平台中，请确保配置了 SUPABASE_URL 和 SUPABASE_ANON_KEY
 const supabaseUrl = (process.env as any).SUPABASE_URL || '';
 const supabaseAnonKey = (process.env as any).SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase 配置缺失，请检查环境变量 SUPABASE_URL 和 SUPABASE_ANON_KEY');
-}
+// 导出配置状态，供前端判断 UI 显示
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co', // 防止 URL 为空导致客户端创建失败
+  supabaseAnonKey || 'placeholder'
+);

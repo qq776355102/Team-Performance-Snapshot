@@ -7,6 +7,7 @@ import {
 } from './types';
 import * as db from './services/dbService';
 import * as api from './services/apiService';
+import { isSupabaseConfigured } from './services/supabaseClient';
 import AddressTable from './components/AddressTable';
 
 const App: React.FC = () => {
@@ -14,6 +15,7 @@ const App: React.FC = () => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isPathLoading, setIsPathLoading] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   
   const [newAddr, setNewAddr] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -25,6 +27,11 @@ const App: React.FC = () => {
   const [lastSyncDate, setLastSyncDate] = useState<string | null>(null);
 
   const loadData = async () => {
+    if (!isSupabaseConfigured) {
+      setInitError("环境变量未配置：请在 Vercel 后台设置 SUPABASE_URL 和 SUPABASE_ANON_KEY");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const [addrs, history] = await Promise.all([
@@ -36,6 +43,10 @@ const App: React.FC = () => {
       if (history.length > 0) {
         setLastSyncDate(history[0].date);
       }
+      setInitError(null);
+    } catch (err: any) {
+      console.error(err);
+      setInitError(`数据库连接异常: ${err.message || '请检查 Supabase 表结构是否存在'}`);
     } finally {
       setIsLoading(false);
     }
@@ -122,7 +133,7 @@ const App: React.FC = () => {
       alert("今日数据同步完成");
     } catch (err) {
       console.error(err);
-      alert("同步失败，请检查数据库配置。");
+      alert("同步失败，请检查数据库权限或表结构约束。");
     } finally {
       setIsLoading(false);
     }
@@ -195,7 +206,7 @@ const App: React.FC = () => {
   }, [snapshots]);
 
   return (
-    <div className="min-h-screen pb-12 bg-slate-50 text-slate-900">
+    <div className="min-h-screen pb-12 bg-slate-50 text-slate-900 font-sans">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -203,14 +214,16 @@ const App: React.FC = () => {
             <h1 className="text-lg font-bold text-slate-900">团队业绩快照 (Supabase)</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <span className={`text-xs font-medium px-2 py-1 rounded ${isTodaySynced ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
-              {isTodaySynced ? '今日已同步' : '今日未同步'}
-            </span>
+            {isSupabaseConfigured && (
+              <span className={`text-xs font-medium px-2 py-1 rounded ${isTodaySynced ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
+                {isTodaySynced ? '今日已同步' : '今日未同步'}
+              </span>
+            )}
             <button
               onClick={runSync}
-              disabled={isLoading}
+              disabled={isLoading || !isSupabaseConfigured}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm ${
-                isLoading 
+                isLoading || !isSupabaseConfigured
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
                   : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
               }`}
@@ -222,6 +235,17 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {initError && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3 text-red-800 animate-pulse">
+            <svg className="h-5 w-5 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+            <div>
+              <p className="font-bold text-sm">配置检测异常</p>
+              <p className="text-xs mt-1">{initError}</p>
+              <button onClick={loadData} className="mt-2 text-xs font-bold underline">重试连接</button>
+            </div>
+          </div>
+        )}
+
         <section className="space-y-6">
           {/* Add Address Form */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
@@ -272,7 +296,7 @@ const App: React.FC = () => {
               <div className="flex items-end">
                 <button
                   onClick={handleAddAddress}
-                  disabled={isLoading}
+                  disabled={isLoading || !isSupabaseConfigured}
                   className="w-full px-4 py-2 bg-slate-800 text-white text-sm rounded-lg font-medium hover:bg-slate-900 transition-colors shadow-sm disabled:opacity-50"
                 >
                   添加并标记
@@ -417,7 +441,7 @@ const App: React.FC = () => {
         <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center space-x-3 animate-bounce">
           <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
           <span className="text-xs font-bold tracking-wide uppercase">
-            {isPathLoading ? '正在追溯邀请路径...' : '正在同步 Supabase 数据...'}
+            {isPathLoading ? '正在追溯邀请路径...' : '正在处理数据...'}
           </span>
         </div>
       )}
