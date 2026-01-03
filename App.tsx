@@ -28,7 +28,7 @@ const App: React.FC = () => {
 
   const loadData = async () => {
     if (!isSupabaseConfigured) {
-      setInitError("环境变量未配置：请在 Vercel 后台设置 SUPABASE_URL 和 SUPABASE_ANON_KEY");
+      setInitError("【环境变量缺失】项目已运行，但未检测到 Supabase 配置。请前往 Vercel 项目设置中的 Environment Variables 添加 SUPABASE_URL 和 SUPABASE_ANON_KEY，然后点击 Redeploy。");
       return;
     }
 
@@ -46,7 +46,12 @@ const App: React.FC = () => {
       setInitError(null);
     } catch (err: any) {
       console.error(err);
-      setInitError(`数据库连接异常: ${err.message || '请检查 Supabase 表结构是否存在'}`);
+      const msg = err.message || '';
+      if (msg.includes('relation') || msg.includes('does not exist')) {
+        setInitError("【数据库表缺失】已连接到 Supabase，但未找到数据表。请在 Supabase SQL Editor 中运行初始化的 SQL 脚本以创建 tracked_addresses 和 snapshots 表。");
+      } else {
+        setInitError(`【数据库连接异常】: ${msg || '网络连接失败或 Anon Key 无效'}`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -133,7 +138,7 @@ const App: React.FC = () => {
       alert("今日数据同步完成");
     } catch (err) {
       console.error(err);
-      alert("同步失败，请检查数据库权限或表结构约束。");
+      alert("同步失败，请确保数据库 RLS 策略允许写入，或检查表结构是否正确。");
     } finally {
       setIsLoading(false);
     }
@@ -210,8 +215,8 @@ const App: React.FC = () => {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">OS</div>
-            <h1 className="text-lg font-bold text-slate-900">团队业绩快照 (Supabase)</h1>
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">TR</div>
+            <h1 className="text-lg font-bold text-slate-900">团队业绩快照</h1>
           </div>
           <div className="flex items-center space-x-4">
             {isSupabaseConfigured && (
@@ -225,10 +230,10 @@ const App: React.FC = () => {
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm ${
                 isLoading || !isSupabaseConfigured
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                  : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
               }`}
             >
-              {isLoading ? '处理中...' : '立即同步今日数据'}
+              {isLoading ? '处理中...' : '同步今日数据'}
             </button>
           </div>
         </div>
@@ -236,12 +241,21 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {initError && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3 text-red-800 animate-pulse">
-            <svg className="h-5 w-5 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-            <div>
-              <p className="font-bold text-sm">配置检测异常</p>
-              <p className="text-xs mt-1">{initError}</p>
-              <button onClick={loadData} className="mt-2 text-xs font-bold underline">重试连接</button>
+          <div className="mb-6 p-5 bg-white border-l-4 border-red-500 rounded-r-xl shadow-md flex items-start space-x-4 text-slate-800">
+            <div className="bg-red-100 p-2 rounded-full">
+              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-base text-red-700">配置或连接异常</p>
+              <p className="text-sm mt-1 leading-relaxed text-slate-600">{initError}</p>
+              <div className="mt-3 flex space-x-4">
+                <button onClick={loadData} className="text-xs font-bold text-indigo-600 hover:indigo-800 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">立即重试</button>
+                <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-xs font-bold text-slate-500 hover:text-slate-700 underline flex items-center">
+                  检查 Supabase 状态
+                </a>
+              </div>
             </div>
           </div>
         )}
@@ -249,7 +263,10 @@ const App: React.FC = () => {
         <section className="space-y-6">
           {/* Add Address Form */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <h2 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">地址标记管理</h2>
+            <h2 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider flex items-center space-x-2">
+              <span className="w-1.5 h-4 bg-indigo-600 rounded-full"></span>
+              <span>地址标记管理</span>
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
               <div className="md:col-span-1">
                 <label className="block text-xs font-medium text-slate-500 mb-1">战区</label>
@@ -257,18 +274,18 @@ const App: React.FC = () => {
                   <select 
                     value={['1','2','3','4','5'].includes(newWarZone) ? newWarZone : 'custom'} 
                     onChange={(e) => setNewWarZone(e.target.value)}
-                    className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 appearance-none"
+                    className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none"
                   >
                     {[1,2,3,4,5].map(v => <option key={v} value={v}>{v} 战区</option>)}
-                    <option value="custom">手动输入...</option>
+                    <option value="custom">自定义名称</option>
                   </select>
                   {!['1','2','3','4','5'].includes(newWarZone) && (
                     <input 
                       type="text" 
                       value={newWarZone}
-                      placeholder="自定义战区"
+                      placeholder="输入战区名"
                       onChange={(e) => setNewWarZone(e.target.value)}
-                      className="absolute inset-0 w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                      className="absolute inset-0 w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500"
                     />
                   )}
                 </div>
@@ -279,8 +296,8 @@ const App: React.FC = () => {
                   type="text"
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
-                  placeholder="例如: 核心号"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  placeholder="例如: 团队长A"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                 />
               </div>
               <div className="md:col-span-2">
@@ -290,22 +307,22 @@ const App: React.FC = () => {
                   value={newAddr}
                   onChange={(e) => setNewAddr(e.target.value)}
                   placeholder="0x..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-mono"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
                 />
               </div>
               <div className="flex items-end">
                 <button
                   onClick={handleAddAddress}
                   disabled={isLoading || !isSupabaseConfigured}
-                  className="w-full px-4 py-2 bg-slate-800 text-white text-sm rounded-lg font-medium hover:bg-slate-900 transition-colors shadow-sm disabled:opacity-50"
+                  className="w-full px-4 py-2 bg-slate-800 text-white text-sm rounded-lg font-medium hover:bg-slate-900 transition-colors shadow-sm disabled:opacity-50 h-[38px]"
                 >
-                  添加并标记
+                  添加标记
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Search & Stats Header */}
+          {/* Search Header */}
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="relative flex-1 w-full max-w-lg">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -318,21 +335,21 @@ const App: React.FC = () => {
                 placeholder="搜索名称、战区或地址..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 sm:text-sm shadow-sm"
+                className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 sm:text-sm shadow-sm"
               />
             </div>
             <button
               onClick={() => {
                 const csv = "战区,标记,地址\n" + addresses.map(a => `${a.warZone},${a.label},${a.address}`).join("\n");
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
-                link.download = `addresses_${new Date().toISOString().split('T')[0]}.csv`;
+                link.download = `地址导出_${new Date().toISOString().split('T')[0]}.csv`;
                 link.click();
               }}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 px-4 py-2 rounded-lg"
             >
-              导出全部标记地址
+              导出标注列表
             </button>
           </div>
 
@@ -349,14 +366,14 @@ const App: React.FC = () => {
 
       {/* History Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in duration-200">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">{showHistoryModal.label} - 历史波动 (7天)</h3>
+                <h3 className="text-lg font-bold text-slate-900">{showHistoryModal.label} - 7日波动</h3>
                 <p className="text-xs text-slate-400 font-mono mt-0.5">{showHistoryModal.address}</p>
               </div>
-              <button onClick={() => setShowHistoryModal(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">&times;</button>
+              <button onClick={() => setShowHistoryModal(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 text-2xl">&times;</button>
             </div>
             <div className="p-6">
               <div className="overflow-x-auto">
@@ -365,7 +382,7 @@ const App: React.FC = () => {
                     <tr>
                       <th className="pb-3 pr-4">日期</th>
                       <th className="pb-3 pr-4">团队质押</th>
-                      <th className="pb-3 pr-4 text-blue-600">有效业绩</th>
+                      <th className="pb-3 pr-4 text-indigo-600">有效业绩</th>
                       <th className="pb-3 pr-4">直推</th>
                       <th className="pb-3">团队人数</th>
                     </tr>
@@ -378,7 +395,7 @@ const App: React.FC = () => {
                         <tr key={s.date} className="hover:bg-slate-50/50">
                           <td className="py-3 pr-4 font-medium text-slate-700">{s.date}</td>
                           <td className="py-3 pr-4">{m.teamStaking.toLocaleString()}</td>
-                          <td className="py-3 pr-4 font-bold text-blue-600">{m.effectiveStaking.toLocaleString()}</td>
+                          <td className="py-3 pr-4 font-bold text-indigo-600">{m.effectiveStaking.toLocaleString()}</td>
                           <td className="py-3 pr-4 text-slate-600">{m.directReferrals}</td>
                           <td className="py-3 text-slate-600">{m.teamNumber}</td>
                         </tr>
@@ -394,19 +411,19 @@ const App: React.FC = () => {
 
       {/* Path Modal */}
       {showPathModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl animate-in slide-in-from-bottom duration-300">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-900">邀请路径溯源 (向上查)</h3>
-              <button onClick={() => setShowPathModal(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">&times;</button>
+              <button onClick={() => setShowPathModal(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 text-2xl">&times;</button>
             </div>
             <div className="p-8 max-h-[70vh] overflow-y-auto">
               <div className="relative space-y-6">
                 <div className="absolute left-1.5 top-2 bottom-2 w-0.5 bg-slate-100"></div>
                 <div className="relative flex items-start space-x-4">
-                  <div className="w-3.5 h-3.5 bg-blue-600 rounded-full mt-1.5 shrink-0 z-10 ring-4 ring-blue-50"></div>
+                  <div className="w-3.5 h-3.5 bg-indigo-600 rounded-full mt-1.5 shrink-0 z-10 ring-4 ring-indigo-50"></div>
                   <div>
-                    <div className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">查询起始点</div>
+                    <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">查询起始点</div>
                     <div className="font-bold text-slate-900">{getAddressLabel(showPathModal.address) || '当前地址'}</div>
                     <div className="text-xs text-slate-400 font-mono mt-0.5">{showPathModal.address}</div>
                   </div>
@@ -419,7 +436,7 @@ const App: React.FC = () => {
                       <div className="flex-1">
                         <div className="text-[10px] text-slate-400 font-medium">第 {idx + 1} 级上级推荐人</div>
                         <div className={`font-semibold ${label ? 'text-emerald-700' : 'text-slate-800'}`}>
-                          {label ? `[标记] ${label}` : '未标记地址'}
+                          {label ? `[已标记] ${label}` : '未标记地址'}
                         </div>
                         <div className="text-xs text-slate-400 font-mono mt-0.5">{addr}</div>
                       </div>
@@ -428,7 +445,7 @@ const App: React.FC = () => {
                 })}
                 <div className="relative flex items-start space-x-4">
                   <div className="w-3.5 h-3.5 bg-slate-800 rounded-full mt-1.5 shrink-0 z-10"></div>
-                  <div className="font-semibold text-slate-400 text-sm italic">推荐链条终止点 (根地址)</div>
+                  <div className="font-semibold text-slate-400 text-sm italic">推荐链条终止 (根地址/0地址)</div>
                 </div>
               </div>
             </div>
@@ -438,10 +455,10 @@ const App: React.FC = () => {
 
       {/* Loading Overlay */}
       {(isLoading || isPathLoading) && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center space-x-3 animate-bounce">
-          <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center space-x-3 animate-pulse">
+          <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse"></div>
           <span className="text-xs font-bold tracking-wide uppercase">
-            {isPathLoading ? '正在追溯邀请路径...' : '正在处理数据...'}
+            {isPathLoading ? '正在追溯区块链邀请路径...' : '正在同步 Supabase 数据...'}
           </span>
         </div>
       )}
