@@ -112,3 +112,35 @@ export const fetchFullChain = async (
   }
   return chain;
 };
+
+/**
+ * 向上追溯，直到遇到已标记地址或到达0地址
+ */
+export const fetchChainUntilLabeled = async (
+  address: string,
+  isLabeled: (addr: string) => boolean,
+  cache: Map<string, string | null> = new Map()
+): Promise<string[]> => {
+  const chain: string[] = [];
+  let current: string | null = address.toLowerCase();
+  const maxDepth = 100;
+
+  while (current && chain.length < maxDepth) {
+    let next: string | null;
+    if (cache.has(current)) {
+      next = cache.get(current)!;
+    } else {
+      next = await fetchReferrer(current);
+      cache.set(current, next);
+    }
+    
+    if (!next) break;
+    chain.push(next);
+    
+    // 如果这个推荐人已经是被标记的，停止进一步查询
+    if (isLabeled(next)) break;
+    
+    current = next;
+  }
+  return chain;
+};

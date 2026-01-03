@@ -7,11 +7,26 @@ interface Props {
   onShowHistory: (metrics: AddressMetrics) => void;
   onShowPath: (address: string) => void;
   getAddressLabel: (addr: string) => string | null;
-  // 传入原始数据用于查找扣除项的具体金额
   allRawData: AddressMetrics[];
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  isPathLoading: boolean;
+  loadingAddress: string | null;
 }
 
-const AddressTable: React.FC<Props> = ({ data, onShowHistory, onShowPath, getAddressLabel, allRawData }) => {
+const AddressTable: React.FC<Props> = ({ 
+  data, 
+  onShowHistory, 
+  onShowPath, 
+  getAddressLabel, 
+  allRawData,
+  currentPage,
+  totalPages,
+  onPageChange,
+  isPathLoading,
+  loadingAddress
+}) => {
   const getAmountByAddress = (addr: string) => {
     const found = allRawData.find(d => d.address.toLowerCase() === addr.toLowerCase());
     return found ? found.teamStaking : 0;
@@ -84,9 +99,10 @@ const AddressTable: React.FC<Props> = ({ data, onShowHistory, onShowPath, getAdd
                   <div className="flex justify-end gap-2">
                     <button 
                       onClick={() => onShowPath(item.address)}
-                      className="text-blue-500 hover:text-blue-700 font-medium text-xs py-1 px-2 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                      disabled={isPathLoading && loadingAddress === item.address}
+                      className="text-blue-500 hover:text-blue-700 font-medium text-xs py-1 px-2 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50 min-w-[70px]"
                     >
-                      邀请路径
+                      {isPathLoading && loadingAddress === item.address ? '查询中...' : '邀请路径'}
                     </button>
                     <button 
                       onClick={() => onShowHistory(item)}
@@ -108,6 +124,34 @@ const AddressTable: React.FC<Props> = ({ data, onShowHistory, onShowPath, getAdd
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <div className="text-xs text-slate-500">
+            显示第 <span className="font-bold">{(currentPage - 1) * 100 + 1}</span> 至 <span className="font-bold">{Math.min(currentPage * 100, (totalPages * 100))}</span> 条数据
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <span className="text-sm font-medium text-slate-700 px-2">
+              第 {currentPage} / {totalPages} 页
+            </span>
+            <button
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
