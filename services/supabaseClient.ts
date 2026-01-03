@@ -1,37 +1,21 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-/**
- * 环境变量读取逻辑说明：
- * 1. 在 Vercel 构建时，process.env 会被尝试注入。
- * 2. 如果您使用 Vite 等工具，通常需要 VITE_ 前缀，但在这里我们保持现状并添加备选检查。
- */
-const getEnv = (key: string): string => {
-  // 尝试从不同的全局变量中读取
-  const val = (process.env as any)?.[key] || 
-              (window as any)?._env_?.[key] || 
-              (import.meta as any)?.env?.[`VITE_${key}`] || 
-              '';
-  return val;
-};
+// 重要：必须使用完整的 process.env.变量名，以便打包工具在构建阶段进行静态替换
+// 如果重新部署后依然为 false，请尝试在 Vercel 中将变量名修改为 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY
+const supabaseUrl = (process.env as any).SUPABASE_URL || '';
+const supabaseAnonKey = (process.env as any).SUPABASE_ANON_KEY || '';
 
-const supabaseUrl = getEnv('SUPABASE_URL');
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
-
-// 诊断日志 - 部署后可以在浏览器控制台看到
-console.log('%c[Supabase Check]', 'color: #3b82f6; font-weight: bold', {
-  urlSet: !!supabaseUrl,
-  keySet: !!supabaseAnonKey,
-  urlStart: supabaseUrl ? supabaseUrl.substring(0, 12) + '...' : 'none'
+// 诊断日志：部署后可在控制台确认变量是否被成功注入
+console.log('%c[Supabase 注入检查]', 'color: #6366f1; font-weight: bold', {
+  urlLoaded: !!supabaseUrl,
+  keyLoaded: !!supabaseAnonKey,
+  info: supabaseUrl ? '环境变量已成功读取' : '未检测到环境变量，请确保已 Redeploy 并检查变量名'
 });
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('[Supabase Error] 环境变量未能在浏览器中识别。');
-}
 
 export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder-if-missing.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder'
 );
