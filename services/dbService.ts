@@ -14,7 +14,8 @@ export const getTrackedAddresses = async (): Promise<TrackedAddress[]> => {
   return data.map(item => ({
     address: item.address,
     label: item.label,
-    warZone: item.war_zone
+    warZone: item.war_zone,
+    level: item.level // 读取 level
   }));
 };
 
@@ -24,17 +25,26 @@ export const saveTrackedAddress = async (addr: TrackedAddress) => {
     .upsert({
       address: addr.address.toLowerCase(),
       label: addr.label,
-      war_zone: addr.warZone
+      war_zone: addr.warZone,
+      level: addr.level // 存储 level
     });
   if (error) throw error;
 };
 
 export const deleteTrackedAddress = async (address: string) => {
-  const { error } = await supabase
+  // 同时删除地址标记和该地址的所有历史快照
+  const { error: addrError } = await supabase
     .from('tracked_addresses')
     .delete()
     .eq('address', address.toLowerCase());
-  if (error) throw error;
+    
+  const { error: snapError } = await supabase
+    .from('snapshots')
+    .delete()
+    .eq('address', address.toLowerCase());
+
+  if (addrError) throw addrError;
+  if (snapError) throw snapError;
 };
 
 export const getSnapshots = async (): Promise<Snapshot[]> => {
@@ -53,7 +63,6 @@ export const getSnapshots = async (): Promise<Snapshot[]> => {
     return [];
   }
 
-  // 按日期分组汇总
   const grouped = data.reduce((acc: Record<string, any[]>, curr) => {
     if (!acc[curr.date]) acc[curr.date] = [];
     acc[curr.date].push({

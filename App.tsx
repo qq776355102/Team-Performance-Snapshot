@@ -28,7 +28,7 @@ const App: React.FC = () => {
 
   const loadData = async () => {
     if (!isSupabaseConfigured) {
-      setInitError("【环境变量缺失】项目已运行，但未检测到 Supabase 配置。请前往 Vercel 项目设置中的 Environment Variables 添加 SUPABASE_URL 和 SUPABASE_ANON_KEY，然后点击 Redeploy。");
+      setInitError("【环境变量缺失】未检测到 Supabase 配置。请在 Vercel 中检查 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。");
       return;
     }
 
@@ -46,12 +46,7 @@ const App: React.FC = () => {
       setInitError(null);
     } catch (err: any) {
       console.error(err);
-      const msg = err.message || '';
-      if (msg.includes('relation') || msg.includes('does not exist')) {
-        setInitError("【数据库表缺失】已连接到 Supabase，但未找到数据表。请在 Supabase SQL Editor 中运行初始化的 SQL 脚本以创建 tracked_addresses 和 snapshots 表。");
-      } else {
-        setInitError(`【数据库连接异常】: ${msg || '网络连接失败或 Anon Key 无效'}`);
-      }
+      setInitError(`连接异常: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -73,14 +68,16 @@ const App: React.FC = () => {
       const referralCache = new Map<string, string | null>();
       
       const rawData = await Promise.all(addresses.map(async (item) => {
-        const [invite, stake, chain] = await Promise.all([
+        const [invite, stake, chain, level] = await Promise.all([
           api.fetchInviteData(item.address),
           api.fetchStakingStatus(item.address),
-          api.fetchFullChain(item.address, referralCache)
+          api.fetchFullChain(item.address, referralCache),
+          api.fetchLevel(item.address)
         ]);
         
         return {
           ...item,
+          level, // 同步获取等级
           directReferrals: invite.directReferralQuantity,
           teamNumber: parseInt(invite.teamNumber || '0'),
           teamStaking: api.formatStaking(stake.teamStaking),
@@ -88,6 +85,14 @@ const App: React.FC = () => {
           referrer: chain[0] || null
         };
       }));
+
+      // 自动同步地址等级到 tracked_addresses 表
+      await Promise.all(rawData.map(r => db.saveTrackedAddress({
+        address: r.address,
+        label: r.label,
+        warZone: r.warZone,
+        level: r.level
+      })));
 
       const metrics: AddressMetrics[] = rawData.map(A => {
         const nearestChildren: string[] = [];
@@ -115,6 +120,7 @@ const App: React.FC = () => {
           address: A.address,
           label: A.label,
           warZone: A.warZone,
+          level: A.level,
           directReferrals: A.directReferrals,
           teamNumber: A.teamNumber,
           teamStaking: A.teamStaking,
@@ -125,20 +131,21 @@ const App: React.FC = () => {
       });
 
       await Promise.all(metrics.map(m => {
-        const { address, label, warZone, ...rest } = m;
+        const { address, label, warZone, level, ...rest } = m;
         return db.saveSnapshotRecord(m.address, today, {
           ...rest,
           label,
-          warZone
+          warZone,
+          level
         });
       }));
 
       await db.cleanupOldSnapshots();
       await loadData();
-      alert("今日数据同步完成");
+      alert("同步完成：等级、人数、质押已更新");
     } catch (err) {
       console.error(err);
-      alert("同步失败，请确保数据库 RLS 策略允许写入，或检查表结构是否正确。");
+      alert("同步失败，请检查网络或 Supabase 配置。");
     } finally {
       setIsLoading(false);
     }
@@ -148,12 +155,19 @@ const App: React.FC = () => {
     if (!newAddr || !newLabel) return;
     const addrFormatted = newAddr.trim().toLowerCase();
     if (addresses.some(a => a.address.toLowerCase() === addrFormatted)) {
-      alert("该地址已存在");
+      alert("地址已存在");
       return;
     }
-    const item: TrackedAddress = { address: addrFormatted, label: newLabel.trim(), warZone: newWarZone };
     setIsLoading(true);
     try {
+      // 添加时顺便获取一次初始等级
+      const level = await api.fetchLevel(addrFormatted);
+      const item: TrackedAddress = { 
+        address: addrFormatted, 
+        label: newLabel.trim(), 
+        warZone: newWarZone,
+        level: level 
+      };
       await db.saveTrackedAddress(item);
       await loadData();
       setNewAddr('');
@@ -164,7 +178,7 @@ const App: React.FC = () => {
   };
 
   const handleRemoveAddress = async (addr: string) => {
-    if (!confirm('确定移除此地址及其快照数据吗？')) return;
+    if (!confirm('【警告】确定要移除此地址及其历史 7 天快照数据吗？此操作无法撤销。')) return;
     setIsLoading(true);
     try {
       await db.deleteTrackedAddress(addr);
@@ -180,10 +194,11 @@ const App: React.FC = () => {
     if (!latest) return [];
     
     return latest.data.filter(item => {
-      const matchLabel = item.label.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchAddr = item.address.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchWarZone = item.warZone?.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchLabel || matchAddr || matchWarZone;
+      const search = searchTerm.toLowerCase();
+      return item.label.toLowerCase().includes(search) || 
+             item.address.toLowerCase().includes(search) || 
+             item.warZone?.toLowerCase().includes(search) ||
+             item.level?.toLowerCase().includes(search);
     });
   }, [snapshots, searchTerm]);
 
@@ -233,7 +248,7 @@ const App: React.FC = () => {
                   : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
               }`}
             >
-              {isLoading ? '处理中...' : '同步今日数据'}
+              {isLoading ? '正在处理...' : '同步今日数据'}
             </button>
           </div>
         </div>
@@ -241,27 +256,12 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {initError && (
-          <div className="mb-6 p-5 bg-white border-l-4 border-red-500 rounded-r-xl shadow-md flex items-start space-x-4 text-slate-800">
-            <div className="bg-red-100 p-2 rounded-full">
-              <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <p className="font-bold text-base text-red-700">配置或连接异常</p>
-              <p className="text-sm mt-1 leading-relaxed text-slate-600">{initError}</p>
-              <div className="mt-3 flex space-x-4">
-                <button onClick={loadData} className="text-xs font-bold text-indigo-600 hover:indigo-800 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">立即重试</button>
-                <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-xs font-bold text-slate-500 hover:text-slate-700 underline flex items-center">
-                  检查 Supabase 状态
-                </a>
-              </div>
-            </div>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {initError}
           </div>
         )}
 
         <section className="space-y-6">
-          {/* Add Address Form */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h2 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider flex items-center space-x-2">
               <span className="w-1.5 h-4 bg-indigo-600 rounded-full"></span>
@@ -276,7 +276,7 @@ const App: React.FC = () => {
                     onChange={(e) => setNewWarZone(e.target.value)}
                     className="w-full pl-3 pr-10 py-2 text-sm border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none"
                   >
-                    {[1,2,3,4,5,6].map(v => <option key={v} value={v}>{v} 战区</option>)}
+                    {[1,2,3,4,5,6].map(v => <option key={v} value={v.toString()}>{v} 战区</option>)}
                     <option value="custom">自定义名称</option>
                   </select>
                   {!['1','2','3','4','5','6'].includes(newWarZone) && (
@@ -297,7 +297,7 @@ const App: React.FC = () => {
                   value={newLabel}
                   onChange={(e) => setNewLabel(e.target.value)}
                   placeholder="例如: 团队长A"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
               </div>
               <div className="md:col-span-2">
@@ -307,14 +307,14 @@ const App: React.FC = () => {
                   value={newAddr}
                   onChange={(e) => setNewAddr(e.target.value)}
                   placeholder="0x..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
                 />
               </div>
               <div className="flex items-end">
                 <button
                   onClick={handleAddAddress}
-                  disabled={isLoading || !isSupabaseConfigured}
-                  className="w-full px-4 py-2 bg-slate-800 text-white text-sm rounded-lg font-medium hover:bg-slate-900 transition-colors shadow-sm disabled:opacity-50 h-[38px]"
+                  disabled={isLoading}
+                  className="w-full px-4 py-2 bg-slate-800 text-white text-sm rounded-lg font-medium hover:bg-slate-900 disabled:opacity-50 h-[38px]"
                 >
                   添加标记
                 </button>
@@ -322,38 +322,31 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Search Header */}
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="relative flex-1 w-full max-w-lg">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
               <input
                 type="text"
-                placeholder="搜索名称、战区或地址..."
+                placeholder="快速检索..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 sm:text-sm shadow-sm"
+                className="block w-full pl-4 pr-3 py-2 border border-slate-300 rounded-xl bg-white text-slate-900 sm:text-sm"
               />
             </div>
             <button
               onClick={() => {
-                const csv = "战区,标记,地址\n" + addresses.map(a => `${a.warZone},${a.label},${a.address}`).join("\n");
+                const csv = "战区,等级,标注,地址\n" + addresses.map(a => `${a.warZone},${a.level},${a.label},${a.address}`).join("\n");
                 const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
-                link.download = `地址导出_${new Date().toISOString().split('T')[0]}.csv`;
+                link.download = `标记地址导出_${new Date().toISOString().split('T')[0]}.csv`;
                 link.click();
               }}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 px-4 py-2 rounded-lg"
+              className="text-xs text-indigo-600 font-bold bg-indigo-50 px-4 py-2 rounded-lg"
             >
-              导出标注列表
+              导出标注列表 (CSV)
             </button>
           </div>
 
-          {/* Table */}
           <AddressTable 
             data={filteredData} 
             onRemove={handleRemoveAddress} 
@@ -367,24 +360,23 @@ const App: React.FC = () => {
       {/* History Modal */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">{showHistoryModal.label} - 7日波动</h3>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">{showHistoryModal.address}</p>
+                <h3 className="text-lg font-bold text-slate-900">{showHistoryModal.label} - 历史波动</h3>
+                <p className="text-xs text-slate-400 font-mono">{showHistoryModal.address}</p>
               </div>
-              <button onClick={() => setShowHistoryModal(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 text-2xl">&times;</button>
+              <button onClick={() => setShowHistoryModal(null)} className="text-slate-400 text-2xl px-2">&times;</button>
             </div>
             <div className="p-6">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-slate-500 font-medium border-b border-slate-100">
+                  <thead className="text-slate-500 border-b border-slate-100">
                     <tr>
                       <th className="pb-3 pr-4">日期</th>
+                      <th className="pb-3 pr-4">等级</th>
                       <th className="pb-3 pr-4">团队质押</th>
                       <th className="pb-3 pr-4 text-indigo-600">有效业绩</th>
-                      <th className="pb-3 pr-4">直推</th>
-                      <th className="pb-3">团队人数</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -392,12 +384,11 @@ const App: React.FC = () => {
                       const m = s.data.find(d => d.address.toLowerCase() === showHistoryModal.address.toLowerCase());
                       if (!m) return null;
                       return (
-                        <tr key={s.date} className="hover:bg-slate-50/50">
-                          <td className="py-3 pr-4 font-medium text-slate-700">{s.date}</td>
+                        <tr key={s.date} className="hover:bg-slate-50">
+                          <td className="py-3 pr-4 font-medium">{s.date}</td>
+                          <td className="py-3 pr-4 text-indigo-600 font-bold">{m.level || '-'}</td>
                           <td className="py-3 pr-4">{m.teamStaking.toLocaleString()}</td>
                           <td className="py-3 pr-4 font-bold text-indigo-600">{m.effectiveStaking.toLocaleString()}</td>
-                          <td className="py-3 pr-4 text-slate-600">{m.directReferrals}</td>
-                          <td className="py-3 text-slate-600">{m.teamNumber}</td>
                         </tr>
                       );
                     })}
@@ -412,54 +403,48 @@ const App: React.FC = () => {
       {/* Path Modal */}
       {showPathModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl max-h-[80vh] flex flex-col">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-slate-900">邀请路径溯源 (向上查)</h3>
-              <button onClick={() => setShowPathModal(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 text-2xl">&times;</button>
+              <h3 className="text-lg font-bold">邀请路径溯源</h3>
+              <button onClick={() => setShowPathModal(null)} className="text-slate-400 text-2xl px-2">&times;</button>
             </div>
-            <div className="p-8 max-h-[70vh] overflow-y-auto">
+            <div className="p-8 overflow-y-auto">
               <div className="relative space-y-6">
                 <div className="absolute left-1.5 top-2 bottom-2 w-0.5 bg-slate-100"></div>
+                {/* Start node */}
                 <div className="relative flex items-start space-x-4">
                   <div className="w-3.5 h-3.5 bg-indigo-600 rounded-full mt-1.5 shrink-0 z-10 ring-4 ring-indigo-50"></div>
                   <div>
-                    <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">查询起始点</div>
-                    <div className="font-bold text-slate-900">{getAddressLabel(showPathModal.address) || '当前地址'}</div>
-                    <div className="text-xs text-slate-400 font-mono mt-0.5">{showPathModal.address}</div>
+                    <div className="text-[10px] text-indigo-600 font-bold">查询地址</div>
+                    <div className="font-bold">{getAddressLabel(showPathModal.address) || '当前地址'}</div>
+                    <div className="text-xs text-slate-400 font-mono">{showPathModal.address}</div>
                   </div>
                 </div>
                 {showPathModal.chain.map((addr, idx) => {
                   const label = getAddressLabel(addr);
                   return (
-                    <div key={`${addr}-${idx}`} className="relative flex items-start space-x-4">
+                    <div key={idx} className="relative flex items-start space-x-4">
                       <div className={`w-3.5 h-3.5 ${label ? 'bg-emerald-500 ring-4 ring-emerald-50' : 'bg-slate-200'} rounded-full mt-1.5 shrink-0 z-10`}></div>
                       <div className="flex-1">
-                        <div className="text-[10px] text-slate-400 font-medium">第 {idx + 1} 级上级推荐人</div>
-                        <div className={`font-semibold ${label ? 'text-emerald-700' : 'text-slate-800'}`}>
+                        <div className="text-[10px] text-slate-400">上级推荐人 (L{idx + 1})</div>
+                        <div className={`font-semibold ${label ? 'text-emerald-700' : ''}`}>
                           {label ? `[已标记] ${label}` : '未标记地址'}
                         </div>
-                        <div className="text-xs text-slate-400 font-mono mt-0.5">{addr}</div>
+                        <div className="text-xs text-slate-400 font-mono">{addr}</div>
                       </div>
                     </div>
                   );
                 })}
-                <div className="relative flex items-start space-x-4">
-                  <div className="w-3.5 h-3.5 bg-slate-800 rounded-full mt-1.5 shrink-0 z-10"></div>
-                  <div className="font-semibold text-slate-400 text-sm italic">推荐链条终止 (根地址/0地址)</div>
-                </div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Loading Overlay */}
-      {(isLoading || isPathLoading) && (
+      {/* Status Tip */}
+      {isLoading && (
         <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 flex items-center space-x-3 animate-pulse">
-          <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse"></div>
-          <span className="text-xs font-bold tracking-wide uppercase">
-            {isPathLoading ? '正在追溯区块链邀请路径...' : '正在同步 Supabase 数据...'}
-          </span>
+          <span className="text-xs font-bold tracking-wide">区块链同步中...</span>
         </div>
       )}
     </div>

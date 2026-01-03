@@ -8,6 +8,24 @@ export const formatStaking = (raw: string | number): number => {
   return Number(val) / Math.pow(10, PRECISION);
 };
 
+// 获取地址等级 Level
+export const fetchLevel = async (address: string): Promise<string> => {
+  try {
+    const res = await fetch(`https://apiv2.ocros.io/api/v1/community/${address}`, {
+      method: "POST",
+      headers: {
+        "accept": "*/*",
+        "Referer": "https://origindefi.io/",
+      }
+    });
+    const data = await res.json();
+    return data.level || 'Unknown';
+  } catch (error) {
+    console.error("Fetch level error:", error);
+    return 'Error';
+  }
+};
+
 export const fetchInviteData = async (address: string): Promise<InviteData> => {
   const url = `https://apiv2.ocros.io/api/v1/communities/getInviteData?address=${address}&level=undefined`;
   const res = await fetch(url, {
@@ -59,15 +77,11 @@ export const fetchReferrer = async (address: string): Promise<string | null> => 
     const result = resData.result;
     if (result && result !== '0x') {
       const hex = result.startsWith("0x") ? result.slice(2) : result;
-      // members method: returns level (64 chars) then address (64 chars)
       if (hex.length < 128) return null;
       const referrerHex = hex.slice(64, 128);
       const referrer = '0x' + referrerHex.slice(24);
-      
       const zeroAddr = '0x' + '0'.repeat(40);
       if (referrer.toLowerCase() === zeroAddr) return null;
-      
-      // Standardize format
       return '0x' + referrer.slice(2).toLowerCase();
     }
   } catch (error) {
@@ -76,9 +90,6 @@ export const fetchReferrer = async (address: string): Promise<string | null> => 
   return null;
 };
 
-/**
- * Traces the referral chain up to the zero address or a max limit.
- */
 export const fetchFullChain = async (
   address: string, 
   cache: Map<string, string | null> = new Map()
@@ -95,7 +106,6 @@ export const fetchFullChain = async (
       next = await fetchReferrer(current);
       cache.set(current, next);
     }
-
     if (!next) break;
     chain.push(next);
     current = next;

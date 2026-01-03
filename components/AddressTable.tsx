@@ -18,6 +18,7 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
             <tr>
               <th className="px-6 py-4 whitespace-nowrap">战区</th>
+              <th className="px-6 py-4">等级</th>
               <th className="px-6 py-4">标注/地址</th>
               <th className="px-6 py-4">直推/团队人数</th>
               <th className="px-6 py-4">团队总质押</th>
@@ -31,6 +32,11 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
                 <td className="px-6 py-4">
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     {item.warZone || '-'}
+                  </span>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                    {item.level || 'N/A'}
                   </span>
                 </td>
                 <td className="px-6 py-4">
@@ -48,7 +54,7 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
                   {item.nearestLabeledChildren.length > 0 && (
                     <div className="mt-1">
                       <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">
-                        扣除:
+                        已扣除:
                       </div>
                       <div className="flex flex-col gap-0.5 mt-0.5">
                         {item.nearestLabeledChildren.map(child => (
@@ -86,8 +92,8 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
             ))}
             {data.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
-                  暂无匹配地址
+                <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
+                  暂无匹配地址或尚未同步今日数据
                 </td>
               </tr>
             )}
@@ -96,6 +102,6 @@ const AddressTable: React.FC<Props> = ({ data, onRemove, onShowHistory, onShowPa
       </div>
     </div>
   );
-};
+}
 
 export default AddressTable;
