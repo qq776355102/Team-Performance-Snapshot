@@ -68,11 +68,11 @@ const AddressTable: React.FC<Props> = ({ data, onShowHistory, onShowPath, getAdd
                         {item.nearestLabeledChildren.map(child => {
                           const childAmount = getAmountByAddress(child);
                           return (
-                            <div key={child} className="flex justify-between items-center text-[10px] leading-none space-x-2">
-                              <span className="text-orange-600 font-medium truncate max-w-[80px]" title={child}>
+                            <div key={child} className="flex justify-between items-start text-[10px] leading-tight space-x-2 py-0.5">
+                              <span className="text-orange-600 font-medium break-words flex-1" title={child}>
                                 • {getAddressLabel(child) || '未知'}
                               </span>
-                              <span className="text-slate-400 font-mono">-{childAmount.toLocaleString()}</span>
+                              <span className="text-slate-400 font-mono whitespace-nowrap">-{childAmount.toLocaleString()}</span>
                             </div>
                           );
                         })}

@@ -370,7 +370,7 @@ const App: React.FC = () => {
       {/* History Modal */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-100">
+          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden border border-slate-100">
             <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
               <div>
                 <h3 className="text-xl font-bold text-slate-900">{showHistoryModal.label} - 历史波动</h3>
@@ -385,6 +385,7 @@ const App: React.FC = () => {
                     <tr>
                       <th className="pb-4 pr-4">同步日期</th>
                       <th className="pb-4 pr-4">等级</th>
+                      <th className="pb-4 pr-4 text-right">直推 / 团队</th>
                       <th className="pb-4 pr-4 text-right">团队总质押</th>
                       <th className="pb-4 pr-4 text-right text-indigo-600">有效业绩</th>
                     </tr>
@@ -398,6 +399,9 @@ const App: React.FC = () => {
                           <td className="py-4 pr-4 font-bold text-slate-600">{s.date}</td>
                           <td className="py-4 pr-4">
                             <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded text-xs font-bold">{m.level || '-'}</span>
+                          </td>
+                          <td className="py-4 pr-4 text-right font-medium text-slate-500">
+                            {m.directReferrals} / {m.teamNumber}
                           </td>
                           <td className="py-4 pr-4 text-right font-mono">{m.teamStaking.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                           <td className="py-4 pr-4 text-right font-bold text-indigo-600 font-mono">{m.effectiveStaking.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
