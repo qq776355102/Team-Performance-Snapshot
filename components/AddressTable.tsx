@@ -10,6 +10,7 @@ interface Props {
   allRawData: AddressMetrics[];
   currentPage: number;
   totalPages: number;
+  totalFilteredCount: number; // 新增：过滤后的总数
   onPageChange: (page: number) => void;
   isPathLoading: boolean;
   loadingAddress: string | null;
@@ -23,6 +24,7 @@ const AddressTable: React.FC<Props> = ({
   allRawData,
   currentPage,
   totalPages,
+  totalFilteredCount,
   onPageChange,
   isPathLoading,
   loadingAddress
@@ -34,9 +36,19 @@ const AddressTable: React.FC<Props> = ({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      {/* 表格头部工具栏：显示结果统计 */}
+      <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+          <span>查询结果清单</span>
+          <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px]">
+            匹配到 {totalFilteredCount} 条
+          </span>
+        </h3>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
+          <thead className="bg-white border-b border-slate-100 text-slate-500 font-medium">
             <tr>
               <th className="px-6 py-4 whitespace-nowrap">战区</th>
               <th className="px-6 py-4">等级</th>
@@ -65,7 +77,9 @@ const AddressTable: React.FC<Props> = ({
                   <div className="text-[10px] text-slate-400 font-mono mt-0.5">{item.address}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="text-slate-900">{item.directReferrals} / {item.teamNumber}</div>
+                  <div className="text-slate-900 font-medium">
+                    <span className="text-indigo-600">{item.directReferrals}</span> / {item.teamNumber}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <div className="text-slate-900 font-medium">{item.teamStaking.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
@@ -125,17 +139,23 @@ const AddressTable: React.FC<Props> = ({
         </table>
       </div>
 
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <div className="text-xs text-slate-500">
-            显示第 <span className="font-bold">{(currentPage - 1) * 100 + 1}</span> 至 <span className="font-bold">{Math.min(currentPage * 100, (totalPages * 100))}</span> 条数据
-          </div>
+      {/* 分页控制与总数统计 */}
+      <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="text-xs text-slate-500">
+          共计 <span className="font-bold text-slate-900">{totalFilteredCount}</span> 条数据
+          {totalFilteredCount > 0 && (
+            <>
+              ，当前显示第 <span className="font-bold">{(currentPage - 1) * 100 + 1}</span> 至 <span className="font-bold">{Math.min(currentPage * 100, totalFilteredCount)}</span> 条
+            </>
+          )}
+        </div>
+        
+        {totalPages > 1 && (
           <div className="flex items-center space-x-2">
             <button
               onClick={() => onPageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
             </button>
@@ -145,13 +165,13 @@ const AddressTable: React.FC<Props> = ({
             <button
               onClick={() => onPageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-2 rounded-lg border border-slate-200 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -329,7 +329,11 @@ const App: React.FC = () => {
     });
 
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return { filteredFull: full, paginatedData: full.slice(start, start + ITEMS_PER_PAGE), totalCount: full.length };
+    return { 
+      filteredFull: full, 
+      paginatedData: full.slice(start, start + ITEMS_PER_PAGE), 
+      totalCount: full.length 
+    };
   }, [snapshots, searchTerm, filterWarZone, filterLevel, currentPage]);
 
   const fetchPath = async (address: string) => {
@@ -396,7 +400,7 @@ const App: React.FC = () => {
             )}
 
             {!isLoggedIn && (
-              <button onClick={() => setShowLoginModal(true)} className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600">
+              <button onClick={() => setShowLoginModal(true)} className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all">
                 后台登录
               </button>
             )}
@@ -528,7 +532,7 @@ const App: React.FC = () => {
                      <button 
                       onClick={handleTraceInputPath}
                       disabled={isPathLoading}
-                      className="absolute right-2 top-1.5 bottom-1.5 px-3 bg-indigo-600 text-white text-[10px] font-bold rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center"
+                      className="absolute right-2 top-1.5 bottom-1.5 px-3 bg-indigo-600 text-white text-[10px] font-bold rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center shadow-sm"
                      >
                        {isPathLoading && loadingAddress === 'search_input' ? '追溯中...' : '邀请路径追溯'}
                      </button>
@@ -537,14 +541,14 @@ const App: React.FC = () => {
                 <div className="flex flex-wrap gap-3">
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">战区:</span>
-                    <select value={filterWarZone} onChange={(e) => { setFilterWarZone(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none">
+                    <select value={filterWarZone} onChange={(e) => { setFilterWarZone(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-indigo-500">
                       <option value="all">全部战区</option>
                       {warZoneOptions.map(z => <option key={z} value={z}>{z}</option>)}
                     </select>
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">等级:</span>
-                    <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none">
+                    <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-indigo-500">
                       <option value="all">全部等级</option>
                       {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
@@ -561,6 +565,7 @@ const App: React.FC = () => {
               allRawData={snapshots.length > 0 ? (snapshots.find(s => s.date === new Date().toISOString().split('T')[0]) || snapshots[0]).data : []}
               currentPage={currentPage}
               totalPages={Math.ceil(totalCount / ITEMS_PER_PAGE)}
+              totalFilteredCount={totalCount} // 传递总数
               onPageChange={setCurrentPage}
               isPathLoading={isPathLoading}
               loadingAddress={loadingAddress}
@@ -680,22 +685,22 @@ const App: React.FC = () => {
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100">
+          <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-300">
             <div className="px-8 py-10">
               <h3 className="text-2xl font-bold text-slate-900 text-center mb-2">管理员登录</h3>
              
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">用户名</label>
-                  <input type="text" required value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} placeholder="请输入 账号" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
+                  <input type="text" required value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} placeholder="请输入 账号" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm transition-all"/>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">密码</label>
-                  <input type="password" required value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} placeholder="••••••••" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
+                  <input type="password" required value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} placeholder="••••••••" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm transition-all"/>
                 </div>
                 <div className="pt-4 flex gap-3">
-                  <button type="button" onClick={() => setShowLoginModal(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">取消</button>
-                  <button type="submit" className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">确认登录</button>
+                  <button type="button" onClick={() => setShowLoginModal(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all active:scale-95">取消</button>
+                  <button type="submit" className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95">确认登录</button>
                 </div>
               </form>
             </div>
@@ -704,7 +709,7 @@ const App: React.FC = () => {
       )}
 
       {isLoading && (
-        <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 flex items-center space-x-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 flex items-center space-x-4 animate-in fade-in slide-in-from-bottom-4 duration-300 border border-white/10">
           <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
           <span className="text-xs font-bold tracking-widest uppercase">数据同步中...</span>
         </div>
