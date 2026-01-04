@@ -11,7 +11,6 @@ import { isSupabaseConfigured } from './services/supabaseClient';
 import AddressTable from './components/AddressTable';
 
 const ITEMS_PER_PAGE = 100;
-const SYNC_BATCH_SIZE = 5;
 
 const App: React.FC = () => {
   const [addresses, setAddresses] = useState<TrackedAddress[]>([]);
@@ -68,6 +67,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleAddAddress = async () => {
+    const today = new Date().toISOString().split('T')[0];
+
     if (isBatchMode) {
       if (!batchText.trim()) return;
       setIsLoading(true);
@@ -84,8 +85,36 @@ const App: React.FC = () => {
         const zone = parts[2] || newWarZone;
 
         try {
-          const level = await api.fetchLevel(addr);
+          const level = await api.fetchLevel(addr).catch(() => 'Unknown');
           await db.saveTrackedAddress({ address: addr, label, warZone: zone, level });
+          
+          // 批量模式也需要创建初始快照，否则列表不会显示新地址
+          let invite, stake, chain;
+          try {
+            [invite, stake, chain] = await Promise.all([
+              api.fetchInviteData(addr),
+              api.fetchStakingStatus(addr),
+              api.fetchFullChain(addr)
+            ]);
+          } catch (e) {
+            invite = { directReferralQuantity: 0, teamNumber: '0' };
+            stake = { teamStaking: '0' };
+            chain = [];
+          }
+
+          const teamStaking = api.formatStaking(stake.teamStaking);
+          await db.saveSnapshotRecord(addr, today, {
+            label,
+            warZone: zone,
+            level,
+            directReferrals: invite.directReferralQuantity || 0,
+            teamNumber: parseInt(invite.teamNumber || '0'),
+            teamStaking: teamStaking,
+            effectiveStaking: teamStaking,
+            referrer: chain[0] || null,
+            nearestLabeledChildren: []
+          });
+
           successCount++;
         } catch (e) { console.error(e); }
       }
@@ -112,7 +141,7 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const level = await api.fetchLevel(addrFormatted);
+      const level = await api.fetchLevel(addrFormatted).catch(() => 'Unknown');
       const item: TrackedAddress = { 
         address: addrFormatted, 
         label: newLabel.trim(), 
@@ -121,19 +150,28 @@ const App: React.FC = () => {
       };
 
       await db.saveTrackedAddress(item);
-      const today = new Date().toISOString().split('T')[0];
-      const [invite, stake, chain] = await Promise.all([
-        api.fetchInviteData(addrFormatted),
-        api.fetchStakingStatus(addrFormatted),
-        api.fetchFullChain(addrFormatted)
-      ]);
-      const teamStaking = api.formatStaking(stake.teamStaking);
       
+      // 增强容错：即使 API 报错，也保证创建一个包含 0 数据的快照
+      let invite, stake, chain;
+      try {
+        [invite, stake, chain] = await Promise.all([
+          api.fetchInviteData(addrFormatted),
+          api.fetchStakingStatus(addrFormatted),
+          api.fetchFullChain(addrFormatted)
+        ]);
+      } catch (e) {
+        console.warn("API 抓取失败，使用默认值初始化", e);
+        invite = { directReferralQuantity: 0, teamNumber: '0' };
+        stake = { teamStaking: '0' };
+        chain = [];
+      }
+
+      const teamStaking = api.formatStaking(stake.teamStaking);
       await db.saveSnapshotRecord(addrFormatted, today, {
         label: item.label,
         warZone: item.warZone,
         level: item.level,
-        directReferrals: invite.directReferralQuantity,
+        directReferrals: invite.directReferralQuantity || 0,
         teamNumber: parseInt(invite.teamNumber || '0'),
         teamStaking: teamStaking,
         effectiveStaking: teamStaking,
@@ -146,7 +184,8 @@ const App: React.FC = () => {
       setNewLabel('');
       alert(`已添加标记: ${item.label}`);
     } catch (err) {
-      alert("添加失败");
+      console.error(err);
+      alert("添加过程出现异常，请检查网络后重试");
     } finally {
       setIsLoading(false);
     }
@@ -174,7 +213,6 @@ const App: React.FC = () => {
     return levels.sort();
   }, [addresses]);
 
-  // 计算筛选后的全量数据和分页数据
   const { filteredFull, paginatedData, totalCount } = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const latest = snapshots.find(s => s.date === todayStr) || snapshots[0];
@@ -205,7 +243,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // CSV Header
     const headers = ["地址", "标注", "等级", "战区", "直推人数", "团队人数", "团队总质押", "有效质押"];
     const rows = filteredFull.map(item => [
       item.address,
@@ -218,7 +255,6 @@ const App: React.FC = () => {
       item.effectiveStaking.toFixed(2)
     ]);
 
-    // CSV 内容生成，添加 UTF-8 BOM 头以防 Excel 乱码
     const csvContent = "\ufeff" + [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -461,7 +497,7 @@ const App: React.FC = () => {
         </section>
       </main>
 
-      {/* History Modal */}
+      {/* 弹窗部分保持不变 */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -510,7 +546,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Path Modal */}
       {showPathModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl max-h-[90vh] flex flex-col border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
