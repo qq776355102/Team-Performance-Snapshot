@@ -28,8 +28,10 @@ const App: React.FC = () => {
   const [newAddr, setNewAddr] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [newWarZone, setNewWarZone] = useState('1');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchText, setBatchText] = useState('');
   
+  const [searchTerm, setSearchTerm] = useState('');
   const [filterWarZone, setFilterWarZone] = useState<string>('all');
   const [filterLevel, setFilterLevel] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,7 +45,6 @@ const App: React.FC = () => {
   } | null>(null);
   const [lastSyncDate, setLastSyncDate] = useState<string | null>(null);
 
-  // Authentication states
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
@@ -77,7 +78,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    // Check if user was previously logged in (simplified)
     const saved = localStorage.getItem('is_admin_logged_in');
     if (saved === 'true') setIsLoggedIn(true);
   }, []);
@@ -89,7 +89,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Hash the password and compare
     const encoder = new TextEncoder();
     const data = encoder.encode(loginForm.password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -113,7 +112,6 @@ const App: React.FC = () => {
   };
 
   const runSync = async () => {
-    // 按钮已禁用，此函数理论上不会被触发
     if (addresses.length === 0) {
       alert("请先添加需要追踪的地址");
       return;
@@ -146,23 +144,12 @@ const App: React.FC = () => {
               referrer: chain[0] || null
             };
           } catch (e) {
-            console.warn(`同步地址 ${item.address} 失败，将跳过快照。`, e);
+            console.warn(`同步地址 ${item.address} 失败`, e);
             return null;
           }
         }));
         rawData.push(...batchResults.filter(r => r !== null));
       }
-
-      if (rawData.length === 0) {
-        throw new Error("同步失败：未能获取任何有效数据");
-      }
-
-      await Promise.all(rawData.map(r => db.saveTrackedAddress({
-        address: r.address,
-        label: r.label,
-        warZone: r.warZone,
-        level: r.level
-      })));
 
       const metrics: AddressMetrics[] = rawData.map(A => {
         const nearestChildren: string[] = [];
@@ -203,20 +190,14 @@ const App: React.FC = () => {
 
       await Promise.all(metrics.map(m => {
         const { address, label, warZone, level, ...rest } = m;
-        return db.saveSnapshotRecord(m.address, today, {
-          ...rest,
-          label,
-          warZone,
-          level
-        });
+        return db.saveSnapshotRecord(m.address, today, { ...rest, label, warZone, level });
       }));
 
       await db.cleanupOldSnapshots();
       await loadData();
       alert("同步完成");
     } catch (err: any) {
-      console.error(err);
-      alert(err.message || "同步失败，请检查网络。");
+      alert(err.message || "同步失败");
     } finally {
       setIsLoading(false);
     }
@@ -227,16 +208,47 @@ const App: React.FC = () => {
       setShowLoginModal(true);
       return;
     }
+    
+    if (isBatchMode) {
+      if (!batchText.trim()) return;
+      setIsLoading(true);
+      const lines = batchText.split('\n').map(l => l.trim()).filter(l => l);
+      let successCount = 0;
+      
+      for (const line of lines) {
+        // Support formats: "0xaddr,name,zone" or "0xaddr,name" or "0xaddr"
+        const parts = line.split(/[,，\t]/).map(p => p.trim());
+        const addr = parts[0]?.toLowerCase();
+        if (!api.isValidAddress(addr)) continue;
+        if (addresses.some(a => a.address.toLowerCase() === addr)) continue;
+
+        const label = parts[1] || `未命名_${addr.slice(-4)}`;
+        const zone = parts[2] || newWarZone;
+
+        try {
+          const level = await api.fetchLevel(addr);
+          await db.saveTrackedAddress({ address: addr, label, warZone: zone, level });
+          successCount++;
+        } catch (e) { console.error(e); }
+      }
+      
+      await loadData();
+      setBatchText('');
+      alert(`批量添加完成，成功导入 ${successCount} 个地址。请稍后通过 Actions 或手动刷新同步详细业绩。`);
+      setIsLoading(false);
+      return;
+    }
+
     if (!newAddr || !newLabel) return;
     const addrFormatted = newAddr.trim().toLowerCase();
     
     if (!api.isValidAddress(addrFormatted)) {
-      alert("请输入合法的钱包地址 (0x 开头的 40 位 16 进制字符)");
+      alert("请输入合法的钱包地址");
       return;
     }
 
     if (addresses.some(a => a.address.toLowerCase() === addrFormatted)) {
-      alert("地址已存在于标记列表中");
+      alert("地址已存在");
       return;
     }
 
@@ -251,14 +263,12 @@ const App: React.FC = () => {
       };
 
       await db.saveTrackedAddress(item);
-
       const today = new Date().toISOString().split('T')[0];
       const [invite, stake, chain] = await Promise.all([
         api.fetchInviteData(addrFormatted),
         api.fetchStakingStatus(addrFormatted),
         api.fetchFullChain(addrFormatted)
       ]);
-
       const teamStaking = api.formatStaking(stake.teamStaking);
       
       await db.saveSnapshotRecord(addrFormatted, today, {
@@ -276,10 +286,9 @@ const App: React.FC = () => {
       await loadData();
       setNewAddr('');
       setNewLabel('');
-      alert(`已成功添加标记并同步数据: ${item.label}`);
+      alert(`已添加标记: ${item.label}`);
     } catch (err) {
-      console.error(err);
-      alert("添加失败，请检查网络连接");
+      alert("添加失败");
     } finally {
       setIsLoading(false);
     }
@@ -318,21 +327,13 @@ const App: React.FC = () => {
                             item.address.toLowerCase().includes(search) || 
                             item.warZone?.toLowerCase().includes(search) ||
                             item.level?.toLowerCase().includes(search);
-      
       const matchesWarZone = filterWarZone === 'all' || item.warZone === filterWarZone;
       const matchesLevel = filterLevel === 'all' || item.level === filterLevel;
-      
       return matchesSearch && matchesWarZone && matchesLevel;
     });
 
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const paginated = full.slice(start, start + ITEMS_PER_PAGE);
-
-    return { 
-      filteredFull: full, 
-      paginatedData: paginated, 
-      totalCount: full.length 
-    };
+    return { filteredFull: full, paginatedData: full.slice(start, start + ITEMS_PER_PAGE), totalCount: full.length };
   }, [snapshots, searchTerm, filterWarZone, filterLevel, currentPage]);
 
   const fetchPath = async (address: string) => {
@@ -342,9 +343,7 @@ const App: React.FC = () => {
     try {
       const chain = await api.fetchFullChain(address);
       const metrics: Record<string, AddressMetrics | null> = {};
-      chain.forEach(addr => {
-        metrics[addr] = getTodayMetric(addr);
-      });
+      chain.forEach(addr => { metrics[addr] = getTodayMetric(addr); });
       setShowPathModal({ address, chain, chainMetrics: metrics });
     } catch (err) {
       alert("路径查询失败");
@@ -363,14 +362,9 @@ const App: React.FC = () => {
     setIsPathLoading(true);
     setLoadingAddress('search_input');
     try {
-      const chain = await api.fetchChainUntilLabeled(
-        searchAddr, 
-        (addr) => !!getAddressLabel(addr)
-      );
+      const chain = await api.fetchChainUntilLabeled(searchAddr, (addr) => !!getAddressLabel(addr));
       const metrics: Record<string, AddressMetrics | null> = {};
-      chain.forEach(addr => {
-        metrics[addr] = getTodayMetric(addr);
-      });
+      chain.forEach(addr => { metrics[addr] = getTodayMetric(addr); });
       setShowPathModal({ address: searchAddr, chain, isDeepSearch: true, chainMetrics: metrics });
     } catch (err) {
       alert("追溯失败");
@@ -400,19 +394,13 @@ const App: React.FC = () => {
             </div>
             
             {isLoggedIn && (
-               <button 
-                onClick={() => setCurrentView(currentView === 'dashboard' ? 'admin' : 'dashboard')}
-                className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all"
-               >
+               <button onClick={() => setCurrentView(currentView === 'dashboard' ? 'admin' : 'dashboard')} className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all">
                  {currentView === 'dashboard' ? '后台管理' : '返回看板'}
                </button>
             )}
 
             {!isLoggedIn && (
-              <button 
-                onClick={() => setShowLoginModal(true)}
-                className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
-              >
+              <button onClick={() => setShowLoginModal(true)} className="text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600">
                 后台登录
               </button>
             )}
@@ -422,14 +410,6 @@ const App: React.FC = () => {
                 {isTodaySynced ? '今日已同步' : '待同步'}
               </span>
             )}
-            <button
-              onClick={runSync}
-              disabled={true}
-              className="px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
-              title="手动同步已禁用，请依赖 GitHub Action 自动同步"
-            >
-              同步今日数据
-            </button>
           </div>
         </div>
       </header>
@@ -443,71 +423,98 @@ const App: React.FC = () => {
         )}
 
         {currentView === 'admin' ? (
-          <AdminPanel 
-            addresses={addresses} 
-            onRefresh={loadData} 
-            onLogout={handleLogout}
-          />
+          <AdminPanel addresses={addresses} onRefresh={loadData} onLogout={handleLogout} />
         ) : (
           <section className="space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-              <h2 className="text-xs font-bold text-slate-400 mb-5 uppercase tracking-[0.2em] flex items-center space-x-2">
-                <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full"></span>
-                <span>地址标记管理 {!isLoggedIn && <span className="text-red-400 text-[10px] ml-2">(仅限管理员操作)</span>}</span>
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-5">
-                <div className="md:col-span-1">
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">所属战区</label>
-                  <div className="relative">
-                    <select 
-                      value={['1','2','3','4','5','6'].includes(newWarZone) ? newWarZone : 'custom'} 
-                      onChange={(e) => setNewWarZone(e.target.value)}
-                      className="w-full pl-3 pr-10 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none shadow-sm outline-none"
-                    >
-                      {[1,2,3,4,5,6].map(v => <option key={v} value={v.toString()}>{v} 战区</option>)}
-                      <option value="custom">自定义名称</option>
-                    </select>
-                    {!['1','2','3','4','5','6'].includes(newWarZone) && (
-                      <input 
-                        type="text" 
-                        value={newWarZone}
-                        placeholder="输入战区名"
-                        onChange={(e) => setNewWarZone(e.target.value)}
-                        className="absolute inset-0 w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 shadow-sm outline-none"
-                      />
-                    )}
-                  </div>
-                </div>
-                <div className="md:col-span-1">
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">标注名称</label>
-                  <input
-                    type="text"
-                    value={newLabel}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    placeholder="例如: 明月社区"
-                    className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 shadow-sm outline-none"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">钱包地址 (0x)</label>
-                  <input
-                    type="text"
-                    value={newAddr}
-                    onChange={(e) => setNewAddr(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 font-mono shadow-sm outline-none"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <button
-                    onClick={handleAddAddress}
-                    disabled={isLoading}
-                    className="w-full px-4 py-2.5 bg-slate-900 text-white text-sm rounded-xl font-bold hover:bg-black disabled:opacity-50 transition-all shadow-md active:scale-95"
+              <div className="flex justify-between items-center mb-5">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
+                  <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full"></span>
+                  <span>地址标记管理 {!isLoggedIn && <span className="text-red-400 text-[10px] ml-2">(仅限管理员操作)</span>}</span>
+                </h2>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] font-bold text-slate-400">批量模式</span>
+                  <button 
+                    onClick={() => setIsBatchMode(!isBatchMode)}
+                    className={`w-10 h-5 rounded-full relative transition-colors ${isBatchMode ? 'bg-indigo-600' : 'bg-slate-200'}`}
                   >
-                    {isLoggedIn ? '添加标记' : '登录后添加'}
+                    <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isBatchMode ? 'left-6' : 'left-1'}`}></div>
                   </button>
                 </div>
               </div>
+
+              {isBatchMode ? (
+                <div className="space-y-4">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">批量粘贴 (格式: 地址,名称,战区)</label>
+                  <textarea 
+                    value={batchText}
+                    onChange={(e) => setBatchText(e.target.value)}
+                    placeholder={"0x123...abc, 明月社区, 1\n0x456...def, 星火战队, 2"}
+                    className="w-full h-32 px-4 py-3 text-sm font-mono border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                  <button
+                    onClick={handleAddAddress}
+                    disabled={isLoading || !batchText.trim()}
+                    className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                  >
+                    {isLoggedIn ? '执行批量导入' : '登录后执行操作'}
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-5">
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">所属战区</label>
+                    <div className="relative">
+                      <select 
+                        value={['1','2','3','4','5','6'].includes(newWarZone) ? newWarZone : 'custom'} 
+                        onChange={(e) => setNewWarZone(e.target.value)}
+                        className="w-full pl-3 pr-10 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 appearance-none shadow-sm outline-none"
+                      >
+                        {[1,2,3,4,5,6].map(v => <option key={v} value={v.toString()}>{v} 战区</option>)}
+                        <option value="custom">自定义名称</option>
+                      </select>
+                      {!['1','2','3','4','5','6'].includes(newWarZone) && (
+                        <input 
+                          type="text" 
+                          value={newWarZone}
+                          placeholder="输入战区名"
+                          onChange={(e) => setNewWarZone(e.target.value)}
+                          className="absolute inset-0 w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 shadow-sm outline-none"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">标注名称</label>
+                    <input
+                      type="text"
+                      value={newLabel}
+                      onChange={(e) => setNewLabel(e.target.value)}
+                      placeholder="例如: 明月社区"
+                      className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 shadow-sm outline-none"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">钱包地址 (0x)</label>
+                    <input
+                      type="text"
+                      value={newAddr}
+                      onChange={(e) => setNewAddr(e.target.value)}
+                      placeholder="0x..."
+                      className="w-full px-3 py-2.5 text-sm rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500 font-mono shadow-sm outline-none"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={handleAddAddress}
+                      disabled={isLoading}
+                      className="w-full px-4 py-2.5 bg-slate-900 text-white text-sm rounded-xl font-bold hover:bg-black disabled:opacity-50 transition-all shadow-md active:scale-95"
+                    >
+                      {isLoggedIn ? '添加标记' : '登录后添加'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-4">
@@ -518,10 +525,7 @@ const App: React.FC = () => {
                     type="text"
                     placeholder="搜索标记、等级、地址或输入地址进行追溯..."
                     value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value);
-                      setCurrentPage(1);
-                    }}
+                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     className="block w-full pl-10 pr-24 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none"
                   />
                   {searchTerm.trim().startsWith('0x') && searchTerm.trim().length >= 40 && (
@@ -530,57 +534,27 @@ const App: React.FC = () => {
                       disabled={isPathLoading}
                       className="absolute right-2 top-1.5 bottom-1.5 px-3 bg-indigo-600 text-white text-[10px] font-bold rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center"
                      >
-                       {isPathLoading && loadingAddress === 'search_input' ? (
-                         <>
-                           <div className="w-2 h-2 border border-white/30 border-t-white rounded-full animate-spin mr-1.5"></div>
-                           追溯中
-                         </>
-                       ) : '邀请路径追溯'}
+                       {isPathLoading && loadingAddress === 'search_input' ? '追溯中...' : '邀请路径追溯'}
                      </button>
                   )}
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">战区:</span>
-                    <select 
-                      value={filterWarZone}
-                      onChange={(e) => { setFilterWarZone(e.target.value); setCurrentPage(1); }}
-                      className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
+                    <select value={filterWarZone} onChange={(e) => { setFilterWarZone(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none">
                       <option value="all">全部战区</option>
                       {warZoneOptions.map(z => <option key={z} value={z}>{z}</option>)}
                     </select>
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">等级:</span>
-                    <select 
-                      value={filterLevel}
-                      onChange={(e) => { setFilterLevel(e.target.value); setCurrentPage(1); }}
-                      className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
+                    <select value={filterLevel} onChange={(e) => { setFilterLevel(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none">
                       <option value="all">全部等级</option>
                       {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </div>
                 </div>
               </div>
-              
-              {(searchTerm || filterWarZone !== 'all' || filterLevel !== 'all') && (
-                <div className="flex items-center justify-between pt-2 border-t border-slate-50">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center">
-                    <span className="w-1 h-1 bg-indigo-400 rounded-full mr-2"></span>
-                    查询结果：共 <span className="text-indigo-600 mx-1">{totalCount}</span> 条匹配
-                  </div>
-                  {searchTerm && (
-                     <button 
-                      onClick={() => { setSearchTerm(''); setFilterWarZone('all'); setFilterLevel('all'); }}
-                      className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 underline"
-                     >
-                       清空所有筛选
-                     </button>
-                  )}
-                </div>
-              )}
             </div>
 
             <AddressTable 
@@ -602,7 +576,7 @@ const App: React.FC = () => {
       {/* History Modal */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
               <div>
                 <h3 className="text-xl font-bold text-slate-900">{showHistoryModal.label} - 历史波动</h3>
@@ -654,35 +628,24 @@ const App: React.FC = () => {
           <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl max-h-[90vh] flex flex-col border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <div>
-                <h3 className="text-xl font-bold flex items-center gap-2">
-                  <span className="p-1.5 bg-indigo-100 text-indigo-600 rounded-lg">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                  </span>
-                  {showPathModal.isDeepSearch ? '邀请路径深度搜索' : '邀请链条溯源'}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  从该地址向上追溯，识别出路径中的已标记管理节点
-                </p>
+                <h3 className="text-xl font-bold flex items-center gap-2">邀请链条溯源</h3>
+                <p className="text-xs text-slate-400 mt-1">识别路径中的已标记管理节点</p>
               </div>
               <button onClick={() => setShowPathModal(null)} className="text-slate-400 text-3xl px-2 hover:text-slate-600 transition-colors">&times;</button>
             </div>
             <div className="p-8 overflow-y-auto bg-slate-50/30">
               <div className="relative space-y-10">
                 <div className="absolute left-[7px] top-3 bottom-3 w-0.5 bg-slate-200"></div>
-                
-                {/* Starting Node */}
                 <div className="relative flex items-start space-x-6">
                   <div className="w-4 h-4 bg-indigo-600 rounded-full mt-1.5 shrink-0 z-10 ring-4 ring-indigo-50 shadow-sm"></div>
                   <div className="flex-1">
-                    <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest mb-1">起始查询节点</div>
+                    <div className="text-[10px] text-indigo-600 font-bold uppercase mb-1">起始查询节点</div>
                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                       <div className="font-bold text-slate-900 text-lg">{getAddressLabel(showPathModal.address) || '未知用户'}</div>
                       <div className="text-xs text-slate-400 font-mono mt-1 break-all">{showPathModal.address}</div>
                     </div>
                   </div>
                 </div>
-
-                {/* Ancestors */}
                 {showPathModal.chain.map((addr, idx) => {
                   const label = getAddressLabel(addr);
                   const metric = showPathModal.chainMetrics?.[addr];
@@ -690,34 +653,21 @@ const App: React.FC = () => {
                     <div key={idx} className="relative flex items-start space-x-6">
                       <div className={`w-4 h-4 ${label ? 'bg-emerald-500 ring-4 ring-emerald-50 shadow-sm' : 'bg-slate-300'} rounded-full mt-1.5 shrink-0 z-10 transition-colors`}></div>
                       <div className="flex-1">
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">
-                          {idx === 0 ? '直接推荐人 (L1)' : `推荐人 (L${idx + 1})`}
-                        </div>
-                        <div className={`p-4 rounded-2xl border ${label ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white'} shadow-sm transition-all`}>
+                        <div className="text-[10px] text-slate-400 font-bold uppercase mb-1">{`上级推荐人 (L${idx + 1})`}</div>
+                        <div className={`p-4 rounded-2xl border ${label ? 'border-emerald-200 bg-emerald-50/50' : 'border-slate-200 bg-white'} shadow-sm`}>
                           <div className="flex justify-between items-start">
                             <div>
-                              <div className={`font-bold ${label ? 'text-emerald-800 text-lg' : 'text-slate-700 font-medium'}`}>
-                                {label ? `[已标记] ${label}` : '未标记上级'}
-                              </div>
+                              <div className={`font-bold ${label ? 'text-emerald-800 text-lg' : 'text-slate-700 font-medium'}`}>{label ? `[已标记] ${label}` : '未标记上级'}</div>
                               <div className="text-[10px] text-slate-400 font-mono mt-0.5 break-all">{addr}</div>
                             </div>
                             {label && metric && (
-                              <span className="px-2 py-1 bg-white text-emerald-600 text-[10px] font-bold rounded-lg border border-emerald-100 shadow-xs">
-                                {metric.warZone}战区 | {metric.level}
-                              </span>
+                              <span className="px-2 py-1 bg-white text-emerald-600 text-[10px] font-bold rounded-lg border border-emerald-100">{metric.warZone}战区 | {metric.level}</span>
                             )}
                           </div>
-                          
                           {label && metric && (
                             <div className="mt-3 pt-3 border-t border-emerald-100 grid grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-[9px] text-emerald-600 uppercase font-bold">团队总质押</p>
-                                <p className="text-xs font-bold text-slate-700">{metric.teamStaking.toLocaleString()}</p>
-                              </div>
-                              <div>
-                                <p className="text-[9px] text-indigo-600 uppercase font-bold">有效业绩</p>
-                                <p className="text-xs font-bold text-indigo-600">{metric.effectiveStaking.toLocaleString()}</p>
-                              </div>
+                              <div><p className="text-[9px] text-emerald-600 uppercase font-bold">团队总质押</p><p className="text-xs font-bold text-slate-700">{metric.teamStaking.toLocaleString()}</p></div>
+                              <div><p className="text-[9px] text-indigo-600 uppercase font-bold">有效业绩</p><p className="text-xs font-bold text-indigo-600">{metric.effectiveStaking.toLocaleString()}</p></div>
                             </div>
                           )}
                         </div>
@@ -725,12 +675,6 @@ const App: React.FC = () => {
                     </div>
                   );
                 })}
-                
-                {showPathModal.chain.length === 0 && !isPathLoading && (
-                   <div className="text-center py-10 bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                     <p className="text-slate-400 italic">该地址为顶级节点，暂无上级推荐人</p>
-                   </div>
-                )}
               </div>
             </div>
           </div>
@@ -743,45 +687,23 @@ const App: React.FC = () => {
           <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100">
             <div className="px-8 py-10">
               <h3 className="text-2xl font-bold text-slate-900 text-center mb-2">管理员登录</h3>
-              <p className="text-slate-400 text-sm text-center mb-8">请输入 root 账户凭证</p>
+              <p className="text-slate-400 text-sm text-center mb-8">
+                请输入管理员凭证 <br/>
+                <span className="text-[10px] text-slate-300">(默认账号: root / 密码: root123456)</span>
+              </p>
               
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-widest">用户名</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={loginForm.username}
-                    onChange={e => setLoginForm({...loginForm, username: e.target.value})}
-                    placeholder="请输入 root"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                  />
+                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">用户名</label>
+                  <input type="text" required value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} placeholder="请输入 root" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-widest">密码</label>
-                  <input 
-                    type="password" 
-                    required
-                    value={loginForm.password}
-                    onChange={e => setLoginForm({...loginForm, password: e.target.value})}
-                    placeholder="••••••••"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                  />
+                  <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">密码</label>
+                  <input type="password" required value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} placeholder="••••••••" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
                 </div>
                 <div className="pt-4 flex gap-3">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowLoginModal(false)}
-                    className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
-                  >
-                    取消
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
-                  >
-                    确认登录
-                  </button>
+                  <button type="button" onClick={() => setShowLoginModal(false)} className="flex-1 px-4 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">取消</button>
+                  <button type="submit" className="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200">确认登录</button>
                 </div>
               </form>
             </div>
@@ -789,11 +711,10 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Syncing Toast */}
       {isLoading && (
         <div className="fixed bottom-8 right-8 bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl z-50 flex items-center space-x-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-          <span className="text-xs font-bold tracking-widest uppercase">区块链大数据同步中...</span>
+          <span className="text-xs font-bold tracking-widest uppercase">数据同步中...</span>
         </div>
       )}
     </div>
