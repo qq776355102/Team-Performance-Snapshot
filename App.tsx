@@ -84,13 +84,18 @@ const App: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loginForm.username !== 'root') {
+    
+    // 自动去除首尾空格，防止由于复制粘贴带来的不可见字符
+    const usernameInput = loginForm.username.trim();
+    const passwordInput = loginForm.password.trim();
+
+    if (usernameInput !== 'root') {
       alert('账号错误');
       return;
     }
 
     const encoder = new TextEncoder();
-    const data = encoder.encode(loginForm.password);
+    const data = encoder.encode(passwordInput);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -204,8 +209,6 @@ const App: React.FC = () => {
   };
 
   const handleAddAddress = async () => {
-    // 移除登录检查，允许所有人添加标记地址
-    
     if (isBatchMode) {
       if (!batchText.trim()) return;
       setIsLoading(true);
