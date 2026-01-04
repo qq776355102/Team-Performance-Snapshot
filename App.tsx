@@ -70,6 +70,7 @@ const App: React.FC = () => {
   }, []);
 
   const runSync = async () => {
+    // 按钮已禁用，此函数理论上不会被触发
     if (addresses.length === 0) {
       alert("请先添加需要追踪的地址");
       return;
@@ -81,7 +82,6 @@ const App: React.FC = () => {
       const referralCache = new Map<string, string | null>();
       const rawData: any[] = [];
 
-      // 分批执行同步，每批5个
       for (let i = 0; i < addresses.length; i += SYNC_BATCH_SIZE) {
         const batch = addresses.slice(i, i + SYNC_BATCH_SIZE);
         const batchResults = await Promise.all(batch.map(async (item) => {
@@ -93,7 +93,6 @@ const App: React.FC = () => {
               api.fetchLevel(item.address)
             ]);
 
-            // 基础检查：如果 stake 返回了 0 且没有任何数据，可能是请求失败，不应覆盖（此处保持原有逻辑，通过try-catch保护）
             return {
               ...item,
               level, 
@@ -111,12 +110,10 @@ const App: React.FC = () => {
         rawData.push(...batchResults.filter(r => r !== null));
       }
 
-      // 如果没有任何成功的数据，不进行后续操作
       if (rawData.length === 0) {
         throw new Error("同步失败：未能获取任何有效数据");
       }
 
-      // 批量保存更新后的等级
       await Promise.all(rawData.map(r => db.saveTrackedAddress({
         address: r.address,
         label: r.label,
@@ -124,7 +121,6 @@ const App: React.FC = () => {
         level: r.level
       })));
 
-      // 计算有效业绩
       const metrics: AddressMetrics[] = rawData.map(A => {
         const nearestChildren: string[] = [];
         const otherLabeledAddresses = rawData.filter(X => X.address.toLowerCase() !== A.address.toLowerCase());
@@ -162,7 +158,6 @@ const App: React.FC = () => {
         };
       });
 
-      // 保存快照
       await Promise.all(metrics.map(m => {
         const { address, label, warZone, level, ...rest } = m;
         return db.saveSnapshotRecord(m.address, today, {
@@ -188,7 +183,6 @@ const App: React.FC = () => {
     if (!newAddr || !newLabel) return;
     const addrFormatted = newAddr.trim().toLowerCase();
     
-    // 地址合法性校验
     if (!api.isValidAddress(addrFormatted)) {
       alert("请输入合法的钱包地址 (0x 开头的 40 位 16 进制字符)");
       return;
@@ -201,7 +195,6 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     try {
-      // 1. 获取基础信息（等级）
       const level = await api.fetchLevel(addrFormatted);
       const item: TrackedAddress = { 
         address: addrFormatted, 
@@ -210,10 +203,8 @@ const App: React.FC = () => {
         level: level 
       };
 
-      // 2. 保存地址标记
       await db.saveTrackedAddress(item);
 
-      // 3. 立即为该地址同步今日数据
       const today = new Date().toISOString().split('T')[0];
       const [invite, stake, chain] = await Promise.all([
         api.fetchInviteData(addrFormatted),
@@ -223,8 +214,6 @@ const App: React.FC = () => {
 
       const teamStaking = api.formatStaking(stake.teamStaking);
       
-      // 这里的有效业绩由于新加地址可能改变已有树结构，建议在添加后全量重新计算或至少保存单点原始快照
-      // 为简化，保存单点数据，并在完成后刷新列表
       await db.saveSnapshotRecord(addrFormatted, today, {
         label: item.label,
         warZone: item.warZone,
@@ -232,7 +221,7 @@ const App: React.FC = () => {
         directReferrals: invite.directReferralQuantity,
         teamNumber: parseInt(invite.teamNumber || '0'),
         teamStaking: teamStaking,
-        effectiveStaking: teamStaking, // 初始有效设为总质押，下一次全局同步会修正
+        effectiveStaking: teamStaking,
         referrer: chain[0] || null,
         nearestLabeledChildren: []
       });
@@ -369,14 +358,11 @@ const App: React.FC = () => {
             )}
             <button
               onClick={runSync}
-              disabled={isLoading || !isSupabaseConfigured}
-              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${
-                isLoading || !isSupabaseConfigured
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                  : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
-              }`}
+              disabled={true}
+              className="px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+              title="手动同步已禁用，请依赖 GitHub Action 自动同步"
             >
-              {isLoading ? '同步中...' : '同步今日数据'}
+              同步今日数据
             </button>
           </div>
         </div>
