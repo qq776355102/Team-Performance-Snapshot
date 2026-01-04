@@ -15,7 +15,7 @@ export const getTrackedAddresses = async (): Promise<TrackedAddress[]> => {
     address: item.address,
     label: item.label,
     warZone: item.war_zone,
-    level: item.level // 读取 level
+    level: item.level
   }));
 };
 
@@ -26,8 +26,25 @@ export const saveTrackedAddress = async (addr: TrackedAddress) => {
       address: addr.address.toLowerCase(),
       label: addr.label,
       war_zone: addr.warZone,
-      level: addr.level // 存储 level
+      level: addr.level
     });
+  if (error) throw error;
+};
+
+/**
+ * 更新已标记地址的信息
+ */
+export const updateTrackedAddress = async (oldAddress: string, addr: TrackedAddress) => {
+  const { error } = await supabase
+    .from('tracked_addresses')
+    .update({
+      address: addr.address.toLowerCase(),
+      label: addr.label,
+      war_zone: addr.warZone,
+      level: addr.level
+    })
+    .eq('address', oldAddress.toLowerCase());
+  
   if (error) throw error;
 };
 
