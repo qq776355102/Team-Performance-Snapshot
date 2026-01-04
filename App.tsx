@@ -67,20 +67,6 @@ const App: React.FC = () => {
     loadData();
   }, []);
 
-  const handleDeleteAddress = async (address: string) => {
-    if (!window.confirm('确定要删除该标记地址及其所有历史数据吗？此操作不可撤销。')) return;
-    setIsLoading(true);
-    try {
-      await db.deleteTrackedAddress(address);
-      await loadData();
-      alert("删除成功");
-    } catch (err) {
-      alert("删除失败");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleAddAddress = async () => {
     if (isBatchMode) {
       if (!batchText.trim()) return;
@@ -420,7 +406,6 @@ const App: React.FC = () => {
             data={paginatedData} 
             onShowHistory={(m) => setShowHistoryModal(m)}
             onShowPath={fetchPath}
-            onDelete={handleDeleteAddress}
             getAddressLabel={getAddressLabel}
             allRawData={snapshots.length > 0 ? (snapshots.find(s => s.date === new Date().toISOString().split('T')[0]) || snapshots[0]).data : []}
             currentPage={currentPage}

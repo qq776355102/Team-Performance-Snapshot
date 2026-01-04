@@ -6,7 +6,6 @@ interface Props {
   data: AddressMetrics[];
   onShowHistory: (metrics: AddressMetrics) => void;
   onShowPath: (address: string) => void;
-  onDelete: (address: string) => void; // 新增：删除回调
   getAddressLabel: (addr: string) => string | null;
   allRawData: AddressMetrics[];
   currentPage: number;
@@ -21,7 +20,6 @@ const AddressTable: React.FC<Props> = ({
   data, 
   onShowHistory, 
   onShowPath, 
-  onDelete,
   getAddressLabel, 
   allRawData,
   currentPage,
@@ -125,12 +123,6 @@ const AddressTable: React.FC<Props> = ({
                       className="text-emerald-500 hover:text-emerald-700 font-medium text-xs py-1 px-2 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
                     >
                       历史
-                    </button>
-                    <button 
-                      onClick={() => onDelete(item.address)}
-                      className="text-red-500 hover:text-red-700 font-medium text-xs py-1 px-2 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                    >
-                      删除
                     </button>
                   </div>
                 </td>
