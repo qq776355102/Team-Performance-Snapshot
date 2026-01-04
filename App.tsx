@@ -174,10 +174,11 @@ const App: React.FC = () => {
     return levels.sort();
   }, [addresses]);
 
-  const { paginatedData, totalCount } = useMemo(() => {
+  // 计算筛选后的全量数据和分页数据
+  const { filteredFull, paginatedData, totalCount } = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const latest = snapshots.find(s => s.date === todayStr) || snapshots[0];
-    if (!latest) return { paginatedData: [], totalCount: 0 };
+    if (!latest) return { filteredFull: [], paginatedData: [], totalCount: 0 };
     
     const full = latest.data.filter(item => {
       const search = searchTerm.toLowerCase();
@@ -192,10 +193,45 @@ const App: React.FC = () => {
 
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return { 
+      filteredFull: full,
       paginatedData: full.slice(start, start + ITEMS_PER_PAGE), 
       totalCount: full.length 
     };
   }, [snapshots, searchTerm, filterWarZone, filterLevel, currentPage]);
+
+  const handleExport = () => {
+    if (filteredFull.length === 0) {
+      alert("当前没有可导出的数据");
+      return;
+    }
+
+    // CSV Header
+    const headers = ["地址", "标注", "等级", "战区", "直推人数", "团队人数", "团队总质押", "有效质押"];
+    const rows = filteredFull.map(item => [
+      item.address,
+      item.label,
+      item.level,
+      item.warZone || "",
+      item.directReferrals,
+      item.teamNumber,
+      item.teamStaking.toFixed(2),
+      item.effectiveStaking.toFixed(2)
+    ]);
+
+    // CSV 内容生成，添加 UTF-8 BOM 头以防 Excel 乱码
+    const csvContent = "\ufeff" + [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const today = new Date().toISOString().split('T')[0];
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `团队业绩导出_${today}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const fetchPath = async (address: string) => {
     if (isPathLoading) return;
@@ -383,7 +419,7 @@ const App: React.FC = () => {
                    </button>
                 )}
               </div>
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 items-center">
                 <div className="flex items-center space-x-2">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">战区:</span>
                   <select value={filterWarZone} onChange={(e) => { setFilterWarZone(e.target.value); setCurrentPage(1); }} className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-indigo-500">
@@ -398,6 +434,13 @@ const App: React.FC = () => {
                     {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
                   </select>
                 </div>
+                <button 
+                  onClick={handleExport}
+                  className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 hover:bg-slate-200 transition-colors flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  导出数据
+                </button>
               </div>
             </div>
           </div>
