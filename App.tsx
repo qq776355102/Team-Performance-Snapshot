@@ -687,15 +687,11 @@ const App: React.FC = () => {
           <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100">
             <div className="px-8 py-10">
               <h3 className="text-2xl font-bold text-slate-900 text-center mb-2">管理员登录</h3>
-              <p className="text-slate-400 text-sm text-center mb-8">
-                请输入管理员凭证 <br/>
-                <span className="text-[10px] text-slate-300">(默认账号: root / 密码: root123456)</span>
-              </p>
-              
+             
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">用户名</label>
-                  <input type="text" required value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} placeholder="请输入 root" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
+                  <input type="text" required value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} placeholder="请输入 账号" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"/>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase">密码</label>
