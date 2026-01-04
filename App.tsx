@@ -204,10 +204,7 @@ const App: React.FC = () => {
   };
 
   const handleAddAddress = async () => {
-    if (!isLoggedIn) {
-      setShowLoginModal(true);
-      return;
-    }
+    // 移除登录检查，允许所有人添加标记地址
     
     if (isBatchMode) {
       if (!batchText.trim()) return;
@@ -216,7 +213,6 @@ const App: React.FC = () => {
       let successCount = 0;
       
       for (const line of lines) {
-        // Support formats: "0xaddr,name,zone" or "0xaddr,name" or "0xaddr"
         const parts = line.split(/[,，\t]/).map(p => p.trim());
         const addr = parts[0]?.toLowerCase();
         if (!api.isValidAddress(addr)) continue;
@@ -430,7 +426,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center space-x-2">
                   <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full"></span>
-                  <span>地址标记管理 {!isLoggedIn && <span className="text-red-400 text-[10px] ml-2">(仅限管理员操作)</span>}</span>
+                  <span>地址标记管理</span>
                 </h2>
                 <div className="flex items-center space-x-2">
                   <span className="text-[10px] font-bold text-slate-400">批量模式</span>
@@ -457,7 +453,7 @@ const App: React.FC = () => {
                     disabled={isLoading || !batchText.trim()}
                     className="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
                   >
-                    {isLoggedIn ? '执行批量导入' : '登录后执行操作'}
+                    执行批量导入
                   </button>
                 </div>
               ) : (
@@ -510,7 +506,7 @@ const App: React.FC = () => {
                       disabled={isLoading}
                       className="w-full px-4 py-2.5 bg-slate-900 text-white text-sm rounded-xl font-bold hover:bg-black disabled:opacity-50 transition-all shadow-md active:scale-95"
                     >
-                      {isLoggedIn ? '添加标记' : '登录后添加'}
+                      添加标记
                     </button>
                   </div>
                 </div>
