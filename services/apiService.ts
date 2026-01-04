@@ -3,6 +3,13 @@ import { InviteData, StakingData } from '../types';
 
 const PRECISION = 9;
 
+/**
+ * 验证以太坊风格地址合法性
+ */
+export const isValidAddress = (address: string): boolean => {
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+};
+
 export const formatStaking = (raw: string | number): number => {
   try {
     const val = typeof raw === 'string' ? BigInt(raw) : BigInt(Math.floor(Number(raw)));

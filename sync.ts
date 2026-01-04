@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const PRECISION = 9;
 const MAX_RETRIES = 5; // 最大重试次数
 const BASE_RETRY_DELAY = 10000; // 基础重试间隔 10 秒
-const BATCH_SIZE = 3; // 每批次处理 3 个地址
+const BATCH_SIZE = 5; // 按照要求更新为 5
 
 // --- 工具函数 ---
 
@@ -151,12 +151,12 @@ async function runSync() {
 
     const results = await Promise.all(batch.map(async (item) => {
       try {
-        // 每个地址内部的数据抓取仍然保持一定的串行或极短延迟，防止瞬时并发极高
         const invite = await fetchInviteData(item.address);
         const stake = await fetchStakingStatus(item.address);
         const chain = await fetchFullChain(item.address, referralCache);
         const level = await fetchLevel(item.address);
 
+        // 如果核心数据请求完全失败，这里会得到默认值或 null，在下一环节过滤
         return {
           address: item.address.toLowerCase(),
           label: item.label,
@@ -227,6 +227,7 @@ async function runSync() {
   // 4. 写入 Supabase
   console.log('💾 正在保存快照到数据库...');
   for (const item of finalMetrics) {
+    // upsert 确保如果已有数据则更新，否则插入
     const { error } = await supabase.from('snapshots').upsert({
       address: item.address,
       date: item.date,

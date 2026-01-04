@@ -11,6 +11,7 @@ import { isSupabaseConfigured } from './services/supabaseClient';
 import AddressTable from './components/AddressTable';
 
 const ITEMS_PER_PAGE = 100;
+const SYNC_BATCH_SIZE = 5;
 
 const App: React.FC = () => {
   const [addresses, setAddresses] = useState<TrackedAddress[]>([]);
@@ -78,26 +79,44 @@ const App: React.FC = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       const referralCache = new Map<string, string | null>();
-      
-      const rawData = await Promise.all(addresses.map(async (item) => {
-        const [invite, stake, chain, level] = await Promise.all([
-          api.fetchInviteData(item.address),
-          api.fetchStakingStatus(item.address),
-          api.fetchFullChain(item.address, referralCache),
-          api.fetchLevel(item.address)
-        ]);
-        
-        return {
-          ...item,
-          level, 
-          directReferrals: invite.directReferralQuantity,
-          teamNumber: parseInt(invite.teamNumber || '0'),
-          teamStaking: api.formatStaking(stake.teamStaking),
-          referrerChain: chain, 
-          referrer: chain[0] || null
-        };
-      }));
+      const rawData: any[] = [];
 
+      // 分批执行同步，每批5个
+      for (let i = 0; i < addresses.length; i += SYNC_BATCH_SIZE) {
+        const batch = addresses.slice(i, i + SYNC_BATCH_SIZE);
+        const batchResults = await Promise.all(batch.map(async (item) => {
+          try {
+            const [invite, stake, chain, level] = await Promise.all([
+              api.fetchInviteData(item.address),
+              api.fetchStakingStatus(item.address),
+              api.fetchFullChain(item.address, referralCache),
+              api.fetchLevel(item.address)
+            ]);
+
+            // 基础检查：如果 stake 返回了 0 且没有任何数据，可能是请求失败，不应覆盖（此处保持原有逻辑，通过try-catch保护）
+            return {
+              ...item,
+              level, 
+              directReferrals: invite.directReferralQuantity,
+              teamNumber: parseInt(invite.teamNumber || '0'),
+              teamStaking: api.formatStaking(stake.teamStaking),
+              referrerChain: chain, 
+              referrer: chain[0] || null
+            };
+          } catch (e) {
+            console.warn(`同步地址 ${item.address} 失败，将跳过快照。`, e);
+            return null;
+          }
+        }));
+        rawData.push(...batchResults.filter(r => r !== null));
+      }
+
+      // 如果没有任何成功的数据，不进行后续操作
+      if (rawData.length === 0) {
+        throw new Error("同步失败：未能获取任何有效数据");
+      }
+
+      // 批量保存更新后的等级
       await Promise.all(rawData.map(r => db.saveTrackedAddress({
         address: r.address,
         label: r.label,
@@ -105,6 +124,7 @@ const App: React.FC = () => {
         level: r.level
       })));
 
+      // 计算有效业绩
       const metrics: AddressMetrics[] = rawData.map(A => {
         const nearestChildren: string[] = [];
         const otherLabeledAddresses = rawData.filter(X => X.address.toLowerCase() !== A.address.toLowerCase());
@@ -142,6 +162,7 @@ const App: React.FC = () => {
         };
       });
 
+      // 保存快照
       await Promise.all(metrics.map(m => {
         const { address, label, warZone, level, ...rest } = m;
         return db.saveSnapshotRecord(m.address, today, {
@@ -155,9 +176,9 @@ const App: React.FC = () => {
       await db.cleanupOldSnapshots();
       await loadData();
       alert("同步完成");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("同步失败，请检查网络。");
+      alert(err.message || "同步失败，请检查网络。");
     } finally {
       setIsLoading(false);
     }
@@ -166,12 +187,21 @@ const App: React.FC = () => {
   const handleAddAddress = async () => {
     if (!newAddr || !newLabel) return;
     const addrFormatted = newAddr.trim().toLowerCase();
-    if (addresses.some(a => a.address.toLowerCase() === addrFormatted)) {
-      alert("地址已存在");
+    
+    // 地址合法性校验
+    if (!api.isValidAddress(addrFormatted)) {
+      alert("请输入合法的钱包地址 (0x 开头的 40 位 16 进制字符)");
       return;
     }
+
+    if (addresses.some(a => a.address.toLowerCase() === addrFormatted)) {
+      alert("地址已存在于标记列表中");
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // 1. 获取基础信息（等级）
       const level = await api.fetchLevel(addrFormatted);
       const item: TrackedAddress = { 
         address: addrFormatted, 
@@ -179,10 +209,41 @@ const App: React.FC = () => {
         warZone: newWarZone,
         level: level 
       };
+
+      // 2. 保存地址标记
       await db.saveTrackedAddress(item);
+
+      // 3. 立即为该地址同步今日数据
+      const today = new Date().toISOString().split('T')[0];
+      const [invite, stake, chain] = await Promise.all([
+        api.fetchInviteData(addrFormatted),
+        api.fetchStakingStatus(addrFormatted),
+        api.fetchFullChain(addrFormatted)
+      ]);
+
+      const teamStaking = api.formatStaking(stake.teamStaking);
+      
+      // 这里的有效业绩由于新加地址可能改变已有树结构，建议在添加后全量重新计算或至少保存单点原始快照
+      // 为简化，保存单点数据，并在完成后刷新列表
+      await db.saveSnapshotRecord(addrFormatted, today, {
+        label: item.label,
+        warZone: item.warZone,
+        level: item.level,
+        directReferrals: invite.directReferralQuantity,
+        teamNumber: parseInt(invite.teamNumber || '0'),
+        teamStaking: teamStaking,
+        effectiveStaking: teamStaking, // 初始有效设为总质押，下一次全局同步会修正
+        referrer: chain[0] || null,
+        nearestLabeledChildren: []
+      });
+
       await loadData();
       setNewAddr('');
       setNewLabel('');
+      alert(`已成功添加标记并同步数据: ${item.label}`);
+    } catch (err) {
+      console.error(err);
+      alert("添加失败，请检查网络连接");
     } finally {
       setIsLoading(false);
     }
@@ -258,7 +319,8 @@ const App: React.FC = () => {
   };
 
   const handleTraceInputPath = async () => {
-    if (!searchTerm || !searchTerm.startsWith('0x') || searchTerm.length < 40) {
+    const searchAddr = searchTerm.trim().toLowerCase();
+    if (!api.isValidAddress(searchAddr)) {
       alert("请输入正确的钱包地址进行路径追溯");
       return;
     }
@@ -266,14 +328,14 @@ const App: React.FC = () => {
     setLoadingAddress('search_input');
     try {
       const chain = await api.fetchChainUntilLabeled(
-        searchTerm, 
+        searchAddr, 
         (addr) => !!getAddressLabel(addr)
       );
       const metrics: Record<string, AddressMetrics | null> = {};
       chain.forEach(addr => {
         metrics[addr] = getTodayMetric(addr);
       });
-      setShowPathModal({ address: searchTerm, chain, isDeepSearch: true, chainMetrics: metrics });
+      setShowPathModal({ address: searchAddr, chain, isDeepSearch: true, chainMetrics: metrics });
     } catch (err) {
       alert("追溯失败");
     } finally {
@@ -403,7 +465,7 @@ const App: React.FC = () => {
                   }}
                   className="block w-full pl-10 pr-24 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none"
                 />
-                {searchTerm.startsWith('0x') && searchTerm.length >= 40 && (
+                {searchTerm.trim().startsWith('0x') && searchTerm.trim().length >= 40 && (
                    <button 
                     onClick={handleTraceInputPath}
                     disabled={isPathLoading}
@@ -526,7 +588,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Path Modal - Enhanced for Search Requirement */}
+      {/* Path Modal */}
       {showPathModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl max-h-[90vh] flex flex-col border border-slate-100 animate-in slide-in-from-bottom-4 duration-300">
