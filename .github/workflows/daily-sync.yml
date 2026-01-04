@@ -3,8 +3,13 @@ name: Daily Team Data Sync
 
 on:
   schedule:
-    # 北京时间 24:00 是 UTC 时间 16:00
-    - cron: '0 16 * * *'
+    # 对应北京时间 (UTC+8):
+    # 00:00 (BJT) -> 16:00 (UTC) - 现有
+    # 04:00 (BJT) -> 20:00 (UTC) - 新增
+    # 08:00 (BJT) -> 00:00 (UTC) - 新增
+    # 12:00 (BJT) -> 04:00 (UTC) - 新增
+    # 16:00 (BJT) -> 08:00 (UTC) - 新增
+    - cron: '0 0,4,8,16,20 * * *'
   workflow_dispatch: # 允许手动触发
 
 jobs:
