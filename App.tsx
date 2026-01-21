@@ -88,7 +88,6 @@ const App: React.FC = () => {
           const level = await api.fetchLevel(addr).catch(() => 'Unknown');
           await db.saveTrackedAddress({ address: addr, label, warZone: zone, level });
           
-          // 批量模式也需要创建初始快照，否则列表不会显示新地址
           let invite, stake, chain;
           try {
             [invite, stake, chain] = await Promise.all([
@@ -151,7 +150,6 @@ const App: React.FC = () => {
 
       await db.saveTrackedAddress(item);
       
-      // 增强容错：即使 API 报错，也保证创建一个包含 0 数据的快照
       let invite, stake, chain;
       try {
         [invite, stake, chain] = await Promise.all([
@@ -497,21 +495,20 @@ const App: React.FC = () => {
         </section>
       </main>
 
-      {/* 弹窗部分保持不变 */}
       {showHistoryModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+          <div className="bg-white rounded-3xl max-w-3xl w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50 shrink-0">
               <div>
-                <h3 className="text-xl font-bold text-slate-900">{showHistoryModal.label} - 历史波动</h3>
+                <h3 className="text-xl font-bold text-slate-900">{showHistoryModal.label} - 全时间线历史波动</h3>
                 <p className="text-xs text-slate-400 font-mono mt-1">{showHistoryModal.address}</p>
               </div>
               <button onClick={() => setShowHistoryModal(null)} className="text-slate-400 text-3xl px-2 hover:text-slate-600 transition-colors">&times;</button>
             </div>
-            <div className="p-8">
+            <div className="p-8 overflow-y-auto">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-50">
+                  <thead className="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-50 sticky top-0 bg-white">
                     <tr>
                       <th className="pb-4 pr-4">同步日期</th>
                       <th className="pb-4 pr-4">等级</th>

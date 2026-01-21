@@ -65,14 +65,10 @@ export const deleteTrackedAddress = async (address: string) => {
 };
 
 export const getSnapshots = async (): Promise<Snapshot[]> => {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const dateStr = sevenDaysAgo.toISOString().split('T')[0];
-
+  // 移除 7 天的时间线限制，获取所有历史记录
   const { data, error } = await supabase
     .from('snapshots')
     .select('*')
-    .gte('date', dateStr)
     .order('date', { ascending: false });
 
   if (error) {
@@ -109,9 +105,11 @@ export const saveSnapshotRecord = async (address: string, date: string, metrics:
 };
 
 export const cleanupOldSnapshots = async () => {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  const dateStr = sevenDaysAgo.toISOString().split('T')[0];
+  // 如果需要完全保留历史，这个函数可以不再被调用或根据新需求修改
+  // 目前保持逻辑但不主动执行清理
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  const dateStr = sixtyDaysAgo.toISOString().split('T')[0];
 
   await supabase
     .from('snapshots')
