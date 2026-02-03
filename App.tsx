@@ -7,12 +7,16 @@ import {
 } from './types';
 import * as db from './services/dbService';
 import * as api from './services/apiService';
-import { isSupabaseConfigured } from './services/supabaseClient';
+import { isSupabaseConfigured, supabase } from './services/supabaseClient';
 import AddressTable from './components/AddressTable';
+import Login from './components/Login';
 
 const ITEMS_PER_PAGE = 100;
 
 const App: React.FC = () => {
+  const [session, setSession] = useState<any>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
   const [addresses, setAddresses] = useState<TrackedAddress[]>([]);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +43,22 @@ const App: React.FC = () => {
     chainMetrics?: Record<string, AddressMetrics | null>
   } | null>(null);
 
+  // 认证逻辑
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setIsAuthChecking(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const loadData = async () => {
     if (!isSupabaseConfigured) {
       setInitError("【环境变量缺失】未检测到 Supabase 配置。");
@@ -63,8 +83,14 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (session) {
+      loadData();
+    }
+  }, [session]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const handleAddAddress = async () => {
     const today = new Date().toISOString().split('T')[0];
@@ -310,6 +336,20 @@ const App: React.FC = () => {
     return snapshots.some(s => s.date === todayStr);
   }, [snapshots]);
 
+  // 全局加载状态
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // 未登录显示登录组件
+  if (!session) {
+    return <Login />;
+  }
+
   return (
     <div className="min-h-screen pb-12 bg-slate-50 text-slate-900 font-sans">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
@@ -320,14 +360,23 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center space-x-4">
             <div className="hidden md:flex flex-col items-end mr-2">
-              <span className="text-[10px] text-slate-400 font-bold uppercase">已标记地址</span>
-              <span className="text-sm font-bold text-indigo-600">{addresses.length}</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase">管理员</span>
+              <span className="text-xs font-bold text-indigo-600 truncate max-w-[120px]">{session.user.email}</span>
             </div>
             {isSupabaseConfigured && (
               <span className={`text-[10px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full ${isTodaySynced ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
                 {isTodaySynced ? '今日已同步' : '待同步'}
               </span>
             )}
+            <button 
+              onClick={handleLogout}
+              className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+              title="退出登录"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
