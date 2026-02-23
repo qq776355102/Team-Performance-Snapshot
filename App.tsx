@@ -40,7 +40,8 @@ const App: React.FC = () => {
     address: string, 
     chain: string[], 
     isDeepSearch?: boolean,
-    chainMetrics?: Record<string, AddressMetrics | null>
+    chainMetrics?: Record<string, AddressMetrics | null>,
+    chainLevels?: Record<string, string> // 新增：保存路径中所有地址的实时等级
   } | null>(null);
 
   // 认证逻辑
@@ -300,8 +301,15 @@ const App: React.FC = () => {
     try {
       const chain = await api.fetchFullChain(address);
       const metrics: Record<string, AddressMetrics | null> = {};
+      const levels: Record<string, string> = {};
+      
+      // 并发获取所有等级，确保即使未标记也能显示
+      const allAddrs = [address, ...chain];
+      const levelResults = await Promise.all(allAddrs.map(addr => api.fetchLevel(addr).catch(() => 'Unknown')));
+      allAddrs.forEach((addr, i) => { levels[addr] = levelResults[i]; });
+
       chain.forEach(addr => { metrics[addr] = getTodayMetric(addr); });
-      setShowPathModal({ address, chain, chainMetrics: metrics });
+      setShowPathModal({ address, chain, chainMetrics: metrics, chainLevels: levels });
     } catch (err) {
       alert("路径查询失败");
     } finally {
@@ -321,8 +329,15 @@ const App: React.FC = () => {
     try {
       const chain = await api.fetchChainUntilLabeled(searchAddr, (addr) => !!getAddressLabel(addr));
       const metrics: Record<string, AddressMetrics | null> = {};
+      const levels: Record<string, string> = {};
+      
+      // 并发获取所有等级
+      const allAddrs = [searchAddr, ...chain];
+      const levelResults = await Promise.all(allAddrs.map(addr => api.fetchLevel(addr).catch(() => 'Unknown')));
+      allAddrs.forEach((addr, i) => { levels[addr] = levelResults[i]; });
+
       chain.forEach(addr => { metrics[addr] = getTodayMetric(addr); });
-      setShowPathModal({ address: searchAddr, chain, isDeepSearch: true, chainMetrics: metrics });
+      setShowPathModal({ address: searchAddr, chain, isDeepSearch: true, chainMetrics: metrics, chainLevels: levels });
     } catch (err) {
       alert("追溯失败");
     } finally {
@@ -605,19 +620,34 @@ const App: React.FC = () => {
             <div className="p-8 overflow-y-auto bg-slate-50/30">
               <div className="relative space-y-10">
                 <div className="absolute left-[7px] top-3 bottom-3 w-0.5 bg-slate-200"></div>
+                
+                {/* 起始节点 */}
                 <div className="relative flex items-start space-x-6">
                   <div className="w-4 h-4 bg-indigo-600 rounded-full mt-1.5 shrink-0 z-10 ring-4 ring-indigo-50 shadow-sm"></div>
                   <div className="flex-1">
                     <div className="text-[10px] text-indigo-600 font-bold uppercase mb-1">起始查询节点</div>
-                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                      <div className="font-bold text-slate-900 text-lg">{getAddressLabel(showPathModal.address) || '未知用户'}</div>
-                      <div className="text-xs text-slate-400 font-mono mt-1 break-all">{showPathModal.address}</div>
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm relative">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-bold text-slate-900 text-lg">{getAddressLabel(showPathModal.address) || '未知用户'}</div>
+                          <div className="text-xs text-slate-400 font-mono mt-1 break-all">{showPathModal.address}</div>
+                        </div>
+                        {showPathModal.chainLevels?.[showPathModal.address] && (
+                          <span className="px-2 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-lg border border-indigo-100">
+                            等级 {showPathModal.chainLevels[showPathModal.address]}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {/* 链条节点 */}
                 {showPathModal.chain.map((addr, idx) => {
                   const label = getAddressLabel(addr);
                   const metric = showPathModal.chainMetrics?.[addr];
+                  const liveLevel = showPathModal.chainLevels?.[addr];
+
                   return (
                     <div key={idx} className="relative flex items-start space-x-6">
                       <div className={`w-4 h-4 ${label ? 'bg-emerald-500 ring-4 ring-emerald-50 shadow-sm' : 'bg-slate-300'} rounded-full mt-1.5 shrink-0 z-10 transition-colors`}></div>
@@ -629,9 +659,16 @@ const App: React.FC = () => {
                               <div className={`font-bold ${label ? 'text-emerald-800 text-lg' : 'text-slate-700 font-medium'}`}>{label ? `[已标记] ${label}` : '未标记上级'}</div>
                               <div className="text-[10px] text-slate-400 font-mono mt-0.5 break-all">{addr}</div>
                             </div>
-                            {label && metric && (
-                              <span className="px-2 py-1 bg-white text-emerald-600 text-[10px] font-bold rounded-lg border border-emerald-100">{metric.warZone}战区 | {metric.level}</span>
-                            )}
+                            <div className="flex flex-col items-end gap-1">
+                              {liveLevel && (
+                                <span className={`px-2 py-1 ${label ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'} text-[10px] font-bold rounded-lg border`}>
+                                  等级 {liveLevel}
+                                </span>
+                              )}
+                              {label && metric && (
+                                <span className="text-[9px] font-bold text-emerald-600/80">{metric.warZone}战区</span>
+                              )}
+                            </div>
                           </div>
                           {label && metric && (
                             <div className="mt-3 pt-3 border-t border-emerald-100 grid grid-cols-2 gap-4">
