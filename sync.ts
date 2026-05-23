@@ -92,7 +92,7 @@ const fetchReferrer = async (address: string): Promise<string | null> => {
   const bodyData = "0x08ae4b0c" + addressParam;
   
   const resData = await fetchWithRetry(
-    "https://greatest-powerful-feather.matic.quiknode.pro/d05012eaa00b33a3aa3e8e7981b2d658f4281815/",
+    "https://pol79729.allnodes.me:8545/fiBUP22lpmCFIeuv",
     {
       method: "POST",
       headers: { "content-type": "application/json", "Referer": "https://origindefi.io/" },
